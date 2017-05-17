@@ -1,0 +1,6 @@
+[package]
+name = "rhodium"
+version = "0.1.0"
+authors = ["Ben Merritt <blm768@gmail.com>"]
+
+[dependencies]
