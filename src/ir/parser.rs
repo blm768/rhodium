@@ -40,6 +40,7 @@ impl<'a> Parser <'a> {
     }
 }
 
+// TODO: figure out how we'll handle unbalanced parentheses.
 impl<'a> Iterator for Parser<'a> {
     type Item = ParseEvent;
 
