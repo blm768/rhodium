@@ -26,6 +26,7 @@ type FilteredLexer<'a> = iter::Filter<&'a mut ir::Lexer, fn(&ir::Token) -> bool>
 
 pub struct Parser<'a> where {
     lexer: FilteredLexer<'a>,
+    level: usize,
 }
 
 impl<'a> Parser <'a> {
@@ -36,11 +37,10 @@ impl<'a> Parser <'a> {
         // http://stackoverflow.com/questions/34459976/; there should be an implicit cast.)
         let filter: fn(&ir::Token) -> bool = is_non_white;
         let filtered = lexer.filter(filter);
-        Parser { lexer: filtered }
+        Parser { lexer: filtered, level: 0 }
     }
 }
 
-// TODO: figure out how we'll handle unbalanced parentheses.
 impl<'a> Iterator for Parser<'a> {
     type Item = ParseEvent;
 
@@ -59,6 +59,8 @@ impl<'a> Iterator for Parser<'a> {
                         match op_token {
                             Some(op_t) => {
                                 if op_t.token_type == ir::TokenType::Symbol {
+                                    self.level += 1;
+
                                     let op_t_loc = op_t.location.clone();
                                     Some(ParseEvent::new(
                                         SourceLocation::span(&loc, &op_t_loc),
@@ -71,7 +73,14 @@ impl<'a> Iterator for Parser<'a> {
                             None => Some(ParseEvent::new(token.location, ParseEventType::Error)),
                         }
                     },
-                    ir::TokenType::Close => Some(ParseEvent::new(token.location, ParseEventType::Close)),
+                    ir::TokenType::Close => {
+                        if self.level == 0 {
+                            Some(ParseEvent::new(token.location, ParseEventType::Error))
+                        } else {
+                            self.level -= 1;
+                            Some(ParseEvent::new(token.location, ParseEventType::Close))
+                        }
+                    },
                     ir::TokenType::Symbol => Some(ParseEvent::new(token.location, ParseEventType::Error)),
                     ir::TokenType::Integer => Some(ParseEvent::new(token.location, ParseEventType::Integer)),
                 }
