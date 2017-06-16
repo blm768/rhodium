@@ -1,3 +1,5 @@
+pub mod operation;
+
 use std::rc::Rc;
 
 pub struct SourceText {
