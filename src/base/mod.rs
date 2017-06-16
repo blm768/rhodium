@@ -1,4 +1,5 @@
 pub mod operation;
+pub mod value;
 
 use std::rc::Rc;
 
