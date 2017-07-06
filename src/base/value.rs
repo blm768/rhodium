@@ -38,7 +38,8 @@ impl Error for ValueError {
 
 type ValueResult = Result<Value, ValueError>;
 
-type Operation = operation::Operation<ValueResult>;
+pub type Operation = operation::Operation<ValueResult>;
+pub type Expression = operation::Expression<ValueResult>;
 
 // TODO: put a generic version of this in the IR code?
 // NOTE: the op function really should be returning an EvaluationResult, not a ValueResult.
@@ -99,8 +100,6 @@ fn incomplete_add(args: &mut Iterator<Item = ValueResult>) -> EvaluationResult<V
 
 const ADD_OP: Operation = Operation::new("add", incomplete_add);//as Evaluator<ValueResult> };
 
-pub fn operations() -> OperationGroup<ValueResult> {
-    let mut group = OperationGroup::new();
-    group.insert(ADD_OP);
-    group
-}
+pub static OPERATIONS: OperationGroup<ValueResult> = OperationGroup::<ValueResult>::new(phf_map! {
+    "add" => ADD_OP,
+});
