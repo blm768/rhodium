@@ -6,11 +6,12 @@ use std::fmt::Formatter;
 use base::SourceLocation;
 use base::operation;
 use base::operation::EvaluationResult;
-use base::operation::EvaluationResult::{Complete, Incomplete};
+use base::operation::EvaluationResult::{Complete, Pending};
 use base::operation::Evaluator;
 use base::operation::OperationGroup;
 
 // A temporary value type (will later be replaced with something more generic)
+#[derive(Clone)]
 pub enum Value {
     Integer(usize),
 }
@@ -37,6 +38,8 @@ impl Error for ValueError {
 }
 
 type ValueResult = Result<Value, ValueError>;
+
+impl operation::Value for ValueResult {}
 
 pub type Operation = operation::Operation<ValueResult>;
 pub type Expression = operation::Expression<ValueResult>;
@@ -94,11 +97,11 @@ fn add(args: &mut Iterator<Item = ValueResult>) -> EvaluationResult<ValueResult>
     binary_op(try_add, args)
 }
 
-fn incomplete_add(args: &mut Iterator<Item = ValueResult>) -> EvaluationResult<ValueResult> {
-    Incomplete
+fn pending_add(args: &mut Iterator<Item = ValueResult>) -> EvaluationResult<ValueResult> {
+    Pending
 }
 
-const ADD_OP: Operation = Operation::new("add", incomplete_add);//as Evaluator<ValueResult> };
+const ADD_OP: Operation = Operation::new("add", pending_add);//as Evaluator<ValueResult> };
 
 pub static OPERATIONS: OperationGroup<ValueResult> = OperationGroup::<ValueResult>::new(phf_map! {
     "add" => ADD_OP,

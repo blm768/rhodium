@@ -1,5 +1,6 @@
 use base::SourceLocation;
 
+use base::operation;
 use base::operation::Operation;
 
 pub enum NodeType {
@@ -8,7 +9,7 @@ pub enum NodeType {
 }
 
 //TODO: remove this?
-pub enum ProtoNode<'a, Value: 'static> {
+pub enum ProtoNode<'a, Value: operation::Value + 'static> {
     // TODO: use some kind of BigInt?
     Integer {value: usize},
     // TODO: support strings.
@@ -24,6 +25,6 @@ trait Node<Value> {
     fn value(&self) -> Value;
 }
 
-struct OperationNode<Value: 'static> {
+struct OperationNode<Value: operation::Value + 'static> {
     operation: &'static Operation<Value>,
 }
