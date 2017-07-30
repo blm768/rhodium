@@ -11,7 +11,7 @@ use base::operation::Evaluator;
 use base::operation::OperationGroup;
 
 // A temporary value type (will later be replaced with something more generic)
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Value {
     Integer(usize),
 }

@@ -1,12 +1,14 @@
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt;
+use std::fmt::Debug;
 use std::rc::Rc;
 use std::rc::Weak;
 
 use phf;
 
-pub trait Value: Clone {
+pub trait Value: Clone + Debug {
 
 }
 
@@ -18,12 +20,26 @@ pub struct IncompleteOp<V: Value + 'static> {
     num_incomplete: usize,
 }
 
+impl<V: Value + 'static> Debug for IncompleteOp<V> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "IncompleteOp({}, {:?})", self.operation.name, self.operands)
+    }
+}
+
 pub struct PendingOp<V: Value + 'static> {
     operation: Operation<V>,
     operands: Vec<V>,
     parent_expression: Cell<Option<Weak<Expression<V>>>>,
 }
 
+impl<V: Value + 'static> Debug for PendingOp<V> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "PendingOp({}, {:?})", self.operation.name, self.operands)
+
+    }
+}
+
+#[derive(Debug)]
 pub enum Expression<V: Value + 'static> {
     Complete(V),
     Pending(PendingOp<V>),
@@ -120,6 +136,12 @@ pub type Evaluator<V: Value + 'static> = fn(&mut Iterator<Item = V>) -> Evaluati
 pub struct Operation<V: Value + 'static> {
     name: &'static str,
     evaluator: Evaluator<V>,
+}
+
+impl<V: Value + 'static> Debug for Operation<V> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Operation {{ name: {} }}", self.name)
+    }
 }
 
 impl<V: Value + 'static> Operation<V> {
