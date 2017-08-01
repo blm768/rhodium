@@ -45,21 +45,13 @@ pub type Operation = operation::Operation<ValueResult>;
 pub type Expression = operation::Expression<ValueResult>;
 
 // TODO: put a generic version of this in the IR code?
+// TODO: only take Values, not ValueResults?
+// (Have a wrapper that propagates all errors?)
 // NOTE: the op function really should be returning an EvaluationResult, not a ValueResult.
-fn binary_op(op: fn(&ValueResult, &ValueResult) -> ValueResult, args: &mut Iterator<Item = ValueResult>) -> EvaluationResult<ValueResult> {
-    match args.next() {
-        Some(a) => {
-            match args.next() {
-                Some(b) => {
-                    match args.next() {
-                        Some(_) => Complete(Err(ValueError {})),
-                        None => Complete(op(&a, &b))
-                    }
-                },
-                None => Complete(Err(ValueError {}))
-            }
-        },
-        None => Complete(Err(ValueError {}))
+fn binary_op(op: fn(&ValueResult, &ValueResult) -> ValueResult, operands: &Vec<ValueResult>) -> EvaluationResult<ValueResult> {
+    match operands.len() {
+        2 => Complete(op(&operands[0], &operands[1])),
+        _ => Complete(Err(ValueError {}))
     }
 }
 
@@ -77,7 +69,7 @@ fn try_op(op: fn(&Value, &Value) -> ValueResult, a: &ValueResult, b: &ValueResul
     }
 }
 
-fn add(args: &mut Iterator<Item = ValueResult>) -> EvaluationResult<ValueResult> {
+fn add(args: &Vec<ValueResult>) -> EvaluationResult<ValueResult> {
     fn do_add(a: &Value, b: &Value) -> ValueResult {
         match a {
             &Value::Integer(a_num) => {
@@ -97,11 +89,11 @@ fn add(args: &mut Iterator<Item = ValueResult>) -> EvaluationResult<ValueResult>
     binary_op(try_add, args)
 }
 
-fn pending_add(args: &mut Iterator<Item = ValueResult>) -> EvaluationResult<ValueResult> {
+fn pending_add(args: &Vec<ValueResult>) -> EvaluationResult<ValueResult> {
     Pending
 }
 
-const ADD_OP: Operation = Operation::new("add", pending_add);//as Evaluator<ValueResult> };
+const ADD_OP: Operation = Operation::new("add", add);
 
 pub static OPERATIONS: OperationGroup<ValueResult> = OperationGroup::<ValueResult>::new(phf_map! {
     "add" => ADD_OP,

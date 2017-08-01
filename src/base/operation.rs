@@ -1,6 +1,4 @@
 use std::cell::Cell;
-use std::cell::RefCell;
-use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Debug;
 use std::rc::Rc;
@@ -48,7 +46,7 @@ pub enum Expression<V: Value + 'static> {
 
 impl<V: Value + 'static> Expression<V> {
     pub fn from_op(op: Operation<V>, mut operands: Vec<Rc<Expression<V>>>) -> Rc<Expression<V>> {
-        let mut num_incomplete = operands.iter().filter(|child| {
+        let num_incomplete = operands.iter().filter(|child| {
             match *Rc::as_ref(child) {
                 Expression::Complete(_) => false,
                 _ => true
@@ -61,20 +59,26 @@ impl<V: Value + 'static> Expression<V> {
                     Expression::Complete(ref value) => value.clone(),
                     _ => unreachable!()
                 }
-            }).collect();
+            }).collect::<Vec<_>>();
 
-            // TODO: try to evaluate the op here.
-            return Rc::new(Expression::Pending(
-                PendingOp {
-                    operation: op,
-                    operands: operand_values,
-                    parent_expression: Cell::new(None),
+            let eval_result = op.evaluate(&operand_values);
+
+            match eval_result {
+                EvaluationResult::Complete(val) => {
+                    return Rc::new(Expression::Complete(val));
                 }
-            ))
+                EvaluationResult::Pending => {
+                    return Rc::new(Expression::Pending(
+                        PendingOp {
+                            operation: op,
+                            operands: operand_values,
+                            parent_expression: Cell::new(None),
+                        }
+                    ));
+                }
+            }
         }
 
-        // TODO: set childrens' parents.
-        // TODO: handle the case when all arguments are complete and evaluate right away.
         let mut expression = Rc::new(Expression::Incomplete(
             IncompleteOp {
                 operation: op,
@@ -128,7 +132,7 @@ pub enum EvaluationResult<V: Value + 'static> {
     Pending
 }
 
-pub type Evaluator<V: Value + 'static> = fn(&mut Iterator<Item = V>) -> EvaluationResult<V>;
+pub type Evaluator<V: Value + 'static> = fn(&Vec<V>) -> EvaluationResult<V>;
 
 // TODO: create an Arguments type? (useful for eager ops)
 // TODO: handle lazy ops. (Consuming a stream of ProtoNodes *might* be a workable solution).
@@ -149,8 +153,8 @@ impl<V: Value + 'static> Operation<V> {
         Operation { name: name, evaluator: evaluator }
     }
 
-    pub fn evaluate(&self, iterator: &mut Iterator<Item = V>) -> EvaluationResult<V> {
-        (self.evaluator)(iterator)
+    pub fn evaluate(&self, operands: &Vec<V>) -> EvaluationResult<V> {
+        (self.evaluator)(operands)
     }
 }
 
