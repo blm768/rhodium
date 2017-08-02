@@ -132,7 +132,8 @@ pub enum EvaluationResult<V: Value + 'static> {
     Pending
 }
 
-pub type Evaluator<V: Value + 'static> = fn(&Vec<V>) -> EvaluationResult<V>;
+// TODO: remove this type?
+pub type Evaluator<V: Value + 'static> = fn(&[V]) -> EvaluationResult<V>;
 
 // TODO: create an Arguments type? (useful for eager ops)
 // TODO: handle lazy ops. (Consuming a stream of ProtoNodes *might* be a workable solution).
