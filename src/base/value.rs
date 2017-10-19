@@ -55,9 +55,7 @@ fn propagate_errors(op: fn(&[Value]) -> EvaluationResult<ValueResult>, operands:
 }
 
 // TODO: put a generic version of this in the IR code?
-// TODO: only take Values, not ValueResults?
-// (Have a wrapper that propagates all errors?)
-// NOTE: the op function really should be returning an EvaluationResult, not a ValueResult.
+// TODO: the op function really should be returning an EvaluationResult, not a ValueResult.
 fn binary_op(op: fn(&Value, &Value) -> EvaluationResult<ValueResult>, operands: &[Value]) -> EvaluationResult<ValueResult> {
     match operands.len() {
         2 => op(&operands[0], &operands[1]),

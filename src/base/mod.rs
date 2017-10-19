@@ -1,4 +1,6 @@
+pub mod context;
 pub mod operation;
+pub mod symbol;
 pub mod value;
 
 use std::rc::Rc;
