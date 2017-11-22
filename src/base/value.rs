@@ -5,7 +5,7 @@ use std::fmt::Formatter;
 
 use base::operation;
 use base::operation::EvaluationResult;
-use base::operation::EvaluationResult::{Complete, Pending};
+use base::operation::EvaluationResult::Total;
 use base::operation::OperationGroup;
 
 // A temporary value type (will later be replaced with something more generic)
@@ -46,7 +46,7 @@ fn propagate_errors(op: fn(&[Value]) -> EvaluationResult<ValueResult>, operands:
         match *operand {
             Ok(ref val) => values.push(val.clone()),
             // TODO: combine multiple errors if present.
-            Err(ref err) => return Complete(Err(err.clone())),
+            Err(ref err) => return Total(Err(err.clone())),
         }
     }
 
@@ -58,7 +58,7 @@ fn propagate_errors(op: fn(&[Value]) -> EvaluationResult<ValueResult>, operands:
 fn binary_op(op: fn(&Value, &Value) -> EvaluationResult<ValueResult>, operands: &[Value]) -> EvaluationResult<ValueResult> {
     match operands.len() {
         2 => op(&operands[0], &operands[1]),
-        _ => Complete(Err(ValueError {}))
+        _ => Total(Err(ValueError {}))
     }
 }
 
@@ -68,7 +68,7 @@ fn add(args: &[ValueResult]) -> EvaluationResult<ValueResult> {
             &Value::Integer(a_num) => {
                 match b {
                     &Value::Integer(b_num) => {
-                        Complete(Ok(Value::Integer(a_num + b_num)))
+                        Total(Ok(Value::Integer(a_num + b_num)))
                     }
                 }
             }
