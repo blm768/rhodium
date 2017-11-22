@@ -1,9 +1,8 @@
 use std::cell::RefCell;
 use std::rc::Weak;
 
-use base::symbol::Symbol;
-
-struct SymbolTable {}
+use base::symbol::SymbolTable;
+use base::value::Value;
 
 struct EvaluationContext {
     symbols: SymbolTable,
@@ -11,7 +10,7 @@ struct EvaluationContext {
 }
 
 impl EvaluationContext {
-    fn lookup(symbol: Symbol) -> Option<Symbol> {
+    fn lookup(name: &str) -> Option<Value> {
         // TODO: implement.
         None
     }

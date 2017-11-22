@@ -3,7 +3,6 @@ use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use base::SourceLocation;
 use base::operation;
 use base::operation::EvaluationResult;
 use base::operation::EvaluationResult::{Complete, Pending};
@@ -85,6 +84,8 @@ fn add(args: &[ValueResult]) -> EvaluationResult<ValueResult> {
 
 const ADD_OP: Operation = Operation::new("add", add);
 
-pub static OPERATIONS: OperationGroup<ValueResult> = OperationGroup::<ValueResult>::new(phf_map! {
-    "add" => ADD_OP,
-});
+pub fn default_operation_map() -> OperationGroup<ValueResult> {
+    OperationGroup::<ValueResult>::new([
+        ("add", ADD_OP),
+    ].iter().cloned().map(|i| (Box::<str>::from(i.0), i.1)).collect())
+}

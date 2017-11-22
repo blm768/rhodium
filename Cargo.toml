@@ -4,6 +4,3 @@ version = "0.1.0"
 authors = ["Ben Merritt <blm768@gmail.com>"]
 
 [dependencies]
-phf = "^0.7"
-phf_macros = "^0.7"
-symbol-map = "^1.0"

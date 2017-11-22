@@ -1,10 +1,9 @@
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Debug;
 use std::rc::Rc;
 use std::rc::Weak;
-
-use phf;
 
 pub trait Value: Clone + Debug {
 
@@ -170,11 +169,11 @@ impl<V: Value + 'static> Clone for Operation<V> {
 }
 
 pub struct OperationGroup<V: Value + 'static> {
-    map: phf::Map<&'static str, Operation<V>>,
+    map: HashMap<Box<str>, Operation<V>>,
 }
 
 impl<V: Value + 'static> OperationGroup<V> {
-    pub const fn new(map: phf::Map<&'static str, Operation<V>>) -> OperationGroup<V> {
+    pub const fn new(map: HashMap<Box<str>, Operation<V>>) -> OperationGroup<V> {
         OperationGroup { map: map }
     }
 

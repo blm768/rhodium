@@ -1,7 +1,7 @@
-use symbol_map::indexing::HashIndexing;
+use std::collections::HashMap;
 
-type SymbolTable = HashIndexing<String, usize>;
+use base::value::Value;
 
-pub struct Symbol {
-    id: usize
+pub struct SymbolTable {
+    entries: HashMap<Box<str>, Value>,
 }
