@@ -1,143 +1,172 @@
-use std::cell::Cell;
+use std;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
-use std::fmt::Debug;
-use std::rc::Rc;
-use std::rc::Weak;
+use std::fmt::{Debug, Formatter};
+use std::rc::{Rc, Weak};
 
 /**
  * A trait for all values that can be handled by Operation
  */
-pub trait Value: Clone + Debug {
+pub trait Value: Clone + Debug {}
 
+// TODO: use this.
+pub trait ExpressionContext<V: Value + 'static> {
 }
 
-/// Represents the "meat" of a partially-evaluated expression
-pub struct PartialExpression<V: Value + 'static> {
-    operation: Operation<V>,
-    operands: Vec<Rc<Expression<V>>>,
-    parent_expression: Cell<Option<Weak<Expression<V>>>>,
-    num_incomplete: usize,
+/**
+ * Responds to expressions becoming total
+ */
+pub trait EvaluationListener<V: Value + 'static> : Debug {
+    fn on_evaluated(&mut self, partial: &PartialExpression<V>, value: V);
 }
 
-impl<V: Value + 'static> Debug for PartialExpression<V> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "PartialExpression({}, {:?})", self.operation.name, self.operands)
+/**
+ * A list of operands
+ */
+#[derive(Debug)]
+pub enum OperandList<V: Value + 'static> {
+    Total(Vec<V>),
+    Partial(Vec<Expression<V>>, usize)
+}
+
+impl<V: Value + 'static> OperandList<V> {
+    pub fn new(operands: Vec<Expression<V>>) -> OperandList<V> {
+        let num_partial = operands.iter().filter(|operand| {
+            match *operand {
+                &Expression::Total(_) => false,
+                &Expression::Partial(_) => true,
+            }
+        }).count();
+
+        if num_partial == 0 {
+            OperandList::Total(operands.into_iter().map(|operand| {
+                match operand {
+                    Expression::Total(ref value) => value.clone(),
+                    Expression::Partial(_) => unreachable!()
+                }
+            }).collect::<Vec<_>>())
+        } else {
+            OperandList::Partial(operands, num_partial)
+        }
+
+        // TODO: set child indices?
     }
-}
 
-pub struct PendingOp<V: Value + 'static> {
-    operation: Operation<V>,
-    operands: Vec<V>,
-    parent_expression: Cell<Option<Weak<Expression<V>>>>,
-}
-
-impl<V: Value + 'static> Debug for PendingOp<V> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "PendingOp({}, {:?})", self.operation.name, self.operands)
-
+    pub fn total_operands(&self) -> Option<Vec<V>> {
+        match self {
+            &OperandList::Total(ref v) => Some(v.clone()),
+            &OperandList::Partial(ref operands, num_partial) => {
+                if num_partial == 0 {
+                    Some(operands.iter().map(|o| {
+                        match o {
+                            &Expression::Total(ref value) => value.clone(),
+                            _ => unreachable!()
+                        }
+                    }).collect::<Vec<_>>())
+                } else {
+                    None
+                }
+            }
+        }
     }
 }
 
 /**
- * An expression is either a value or an operation applied to a set of expressions.
+ * Represents the "meat" of a partially-evaluated expression
+ */
+pub struct PartialExpression<V: Value + 'static> {
+    operation: Operation<V>,
+    operands: RefCell<OperandList<V>>,
+    listener: Cell<Option<Weak<EvaluationListener<V>>>>,
+    /// The operand's index in the parent expression
+    index: usize,
+}
+
+// Since we can't derive Debug for Cell<Option<Weak<...>>>, we have to implement it manually.
+impl<V: Value + 'static> Debug for PartialExpression<V> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        // TODO: implement properly.
+        write!(f, "PartialExpression")
+    }
+}
+
+impl<V: Value + 'static> PartialExpression<V> {
+    pub fn new(op: Operation<V>, operands: OperandList<V>) -> Rc<PartialExpression<V>> {
+        let exp = Rc::new(PartialExpression {
+            operation: op, 
+            operands: RefCell::new(operands),
+            listener: Cell::new(None),
+            index: 0,
+        });
+
+        // Set operands' listeners.
+        {
+            let operands = &*exp.operands.borrow();
+            if let &OperandList::Partial(ref operands, _) = operands {
+                for operand in operands.iter() {
+                    if let &Expression::Partial(ref oi) = operand {
+                        oi.listener.set(Some(Rc::<PartialExpression<V>>::downgrade(&exp)));
+                    }
+                }
+            }
+        }
+
+        exp
+    }
+}
+
+impl<V: Value + 'static> EvaluationListener<V> for PartialExpression<V> {
+    fn on_evaluated(&mut self, partial: &PartialExpression<V>, value: V) {
+        let operands = &mut *self.operands.borrow_mut();
+        if let &mut OperandList::Partial(ref mut operands, ref mut num_partial) = operands {
+            if let Expression::Partial(_) = operands[partial.index] {
+                operands[partial.index] = Expression::Total(value);
+                *num_partial -= 1;
+                // TODO: do something when we have no partials left.
+            }
+        }
+    }
+}
+
+/**
+ * An expression is either a value or an operation applied to a list of expressions.
  */
 #[derive(Debug)]
 pub enum Expression<V: Value + 'static> {
     /// An expression that has been totally evaluated
     Total(V),
-    /**
-     * An expression whose evaluation is waiting on an external trigger
-     *
-     * When an Expression is in this state, all of its operands are Total, but there
-     * is not yet enough information to evaluate the operation.
-     */
-    Pending(PendingOp<V>),
-    /// An expression whose operands are not yet Total
-    Partial(PartialExpression<V>),
+    /// An expression which has not been totally evaluated
+    Partial(Rc<PartialExpression<V>>),
 }
 
 impl<V: Value + 'static> Expression<V> {
-    pub fn from_op(op: Operation<V>, mut operands: Vec<Rc<Expression<V>>>) -> Rc<Expression<V>> {
-        let num_incomplete = operands.iter().filter(|child| {
-            match *Rc::as_ref(child) {
-                Expression::Total(_) => false,
-                _ => true
-            }
-        }).count();
+    /**
+     * Builds an Expression from an Operation and a list of Operands
+     */
+    pub fn from_op(op: Operation<V>, operands: Vec<Expression<V>>) -> Expression<V> {
+        let op_list = OperandList::new(operands);
 
-        if num_incomplete == 0 {
-            let operand_values = operands.iter().map(|o| {
-                match *Rc::as_ref(o) {
-                    Expression::Total(ref value) => value.clone(),
-                    _ => unreachable!()
-                }
-            }).collect::<Vec<_>>();
-
+        if let OperandList::Total(operand_values) = op_list {
             let eval_result = op.evaluate(&operand_values);
 
-            match eval_result {
+            return match eval_result {
                 EvaluationResult::Total(val) => {
-                    return Rc::new(Expression::Total(val));
+                    Expression::Total(val)
                 }
                 EvaluationResult::Pending => {
-                    return Rc::new(Expression::Pending(
-                        PendingOp {
-                            operation: op,
-                            operands: operand_values,
-                            parent_expression: Cell::new(None),
-                        }
-                    ));
+                    let partial = PartialExpression::new(op, OperandList::Total(operand_values));
+                    Expression::Partial(partial)
                 }
             }
         }
 
-        let mut expression = Rc::new(Expression::Partial(
-            PartialExpression {
-                operation: op,
-                operands: vec!(),
-                parent_expression: Cell::new(None),
-                num_incomplete: num_incomplete
-            }
-        ));
-
-        // TODO: implement.
-        for child in operands.iter_mut() {
-            if let Expression::Partial(ref oi) = *Rc::as_ref(child) {
-                oi.parent_expression.set(Some(Rc::downgrade(&expression)));
-            }
-        }
-
-        match *Rc::get_mut(&mut expression).unwrap() {
-            Expression::Partial(ref mut oi) => {
-                oi.operands = operands;
-            },
-            _ => unreachable!()
-        }
-
-        expression
+        Expression::Partial(PartialExpression::new(op, op_list))
     }
 
     pub fn from_value(value: V) -> Rc<Expression<V>> {
         Rc::new(Expression::Total(value))
     }
-
-    // Called when an operand becomes complete
-    // TODO: implement.
-    fn on_child_complete(&mut self) {
-        match *self {
-            Expression::Total(_) => panic!("Invalid call to on_child_complete"),
-            Expression::Pending(_) => panic!("Invalid call to on_child_complete"),
-            Expression::Partial(ref mut oi) => {
-                assert!(oi.num_incomplete > 0);
-                oi.num_incomplete -= 1;
-                // TODO: evaluate if num_incomplete hits 0.
-            }
-        }
-    }
-
-    //TODO: create a function that produces an Iterator<Item=V>, but only when all arguments
-    // are complete?
 }
 
 pub enum EvaluationResult<V: Value + 'static> {
