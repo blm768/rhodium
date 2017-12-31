@@ -18,7 +18,7 @@ pub trait ExpressionContext<V: Value + 'static> {
  * Responds to expressions becoming total
  */
 pub trait EvaluationListener<V: Value + 'static> : Debug {
-    fn on_evaluated(&mut self, partial: &PartialExpression<V>, value: V);
+    fn on_evaluated(&self, partial: &PartialExpression<V>, value: V);
 }
 
 /**
@@ -47,27 +47,16 @@ impl<V: Value + 'static> OperandList<V> {
                 }
             }).collect::<Vec<_>>())
         } else {
-            OperandList::Partial(operands, num_partial)
-        }
-
-        // TODO: set child indices?
-    }
-
-    pub fn total_operands(&self) -> Option<Vec<V>> {
-        match self {
-            &OperandList::Total(ref v) => Some(v.clone()),
-            &OperandList::Partial(ref operands, num_partial) => {
-                if num_partial == 0 {
-                    Some(operands.iter().map(|o| {
-                        match o {
-                            &Expression::Total(ref value) => value.clone(),
-                            _ => unreachable!()
-                        }
-                    }).collect::<Vec<_>>())
-                } else {
-                    None
+            // Set children's indices
+            let mut index: usize = 0;
+            for operand in operands.iter() {
+                if let &Expression::Partial(ref partial) = operand {
+                    partial.index.set(index);
                 }
+                index += 1;
             }
+
+            OperandList::Partial(operands, num_partial)
         }
     }
 }
@@ -79,8 +68,12 @@ pub struct PartialExpression<V: Value + 'static> {
     operation: Operation<V>,
     operands: RefCell<OperandList<V>>,
     listener: Cell<Option<Weak<EvaluationListener<V>>>>,
-    /// The operand's index in the parent expression
-    index: usize,
+    /** 
+     * The operand's index in the parent expression
+     *
+     * Will be set when the PartialExpression is placed in an OperandList
+     */ 
+    index: Cell<usize>,
 }
 
 // Since we can't derive Debug for Cell<Option<Weak<...>>>, we have to implement it manually.
@@ -97,7 +90,7 @@ impl<V: Value + 'static> PartialExpression<V> {
             operation: op, 
             operands: RefCell::new(operands),
             listener: Cell::new(None),
-            index: 0,
+            index: Cell::new(0),
         });
 
         // Set operands' listeners.
@@ -117,13 +110,45 @@ impl<V: Value + 'static> PartialExpression<V> {
 }
 
 impl<V: Value + 'static> EvaluationListener<V> for PartialExpression<V> {
-    fn on_evaluated(&mut self, partial: &PartialExpression<V>, value: V) {
-        let operands = &mut *self.operands.borrow_mut();
-        if let &mut OperandList::Partial(ref mut operands, ref mut num_partial) = operands {
-            if let Expression::Partial(_) = operands[partial.index] {
-                operands[partial.index] = Expression::Total(value);
+    fn on_evaluated(&self, partial: &PartialExpression<V>, value: V) {
+        let operand_list = &mut *self.operands.borrow_mut();
+
+        let mut eval_result = EvaluationResult::Pending;
+        // If the OperandList becomes total, the new total list will be stored here.
+        let mut new_operands: Option<OperandList<V>> = None;
+
+        if let &mut OperandList::Partial(ref mut operands, ref mut num_partial) = operand_list {
+            if let Expression::Partial(_) = operands[partial.index.get()] {
+                operands[partial.index.get()] = Expression::Total(value);
                 *num_partial -= 1;
-                // TODO: do something when we have no partials left.
+
+                // Are we ready to evaluate?
+                if *num_partial == 0 {
+                    let total_operands = operands.iter().map(|o| {
+                        match o {
+                            &Expression::Total(ref value) => value.clone(),
+                            _ => unreachable!()
+                        }
+                    }).collect::<Vec<_>>();
+
+                    eval_result = self.operation.evaluate(&total_operands);
+                    new_operands = Some(OperandList::Total(total_operands));
+                }
+            }
+        }
+
+        if let Some(operands) = new_operands {
+            *operand_list = operands;
+        }
+
+        if let EvaluationResult::Total(value) = eval_result {
+            // We know that there won't be a mutable borrow here because no one else should
+            // be setting the listener.
+            let maybe_listener = unsafe{ &*self.listener.as_ptr() };
+            if let &Some(ref weak_listener) = maybe_listener {
+                if let Some(ref listener) = weak_listener.upgrade() {
+                    listener.on_evaluated(&self, value);
+                }
             }
         }
     }
@@ -174,15 +199,12 @@ pub enum EvaluationResult<V: Value + 'static> {
     Pending
 }
 
-// TODO: remove this type?
-pub type Evaluator<V: Value + 'static> = fn(&[V]) -> EvaluationResult<V>;
-
 // TODO: create an Arguments type? (useful for eager ops)
 // TODO: handle lazy ops. (Consuming a stream of ProtoNodes *might* be a workable solution).
 #[derive(Copy)]
 pub struct Operation<V: Value + 'static> {
     name: &'static str,
-    evaluator: Evaluator<V>,
+    evaluator: fn(&[V]) -> EvaluationResult<V>,
 }
 
 impl<V: Value + 'static> Debug for Operation<V> {
@@ -192,7 +214,7 @@ impl<V: Value + 'static> Debug for Operation<V> {
 }
 
 impl<V: Value + 'static> Operation<V> {
-    pub const fn new(name: &'static str, evaluator: Evaluator<V>) -> Operation<V> {
+    pub const fn new(name: &'static str, evaluator: fn(&[V]) -> EvaluationResult<V>) -> Operation<V> {
         Operation { name: name, evaluator: evaluator }
     }
 
