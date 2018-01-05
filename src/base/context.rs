@@ -6,7 +6,7 @@ use base::value::Value;
 
 struct EvaluationContext {
     symbols: SymbolTable,
-    parent: Weak<RefCell<EvaluationContext>>
+    parent: Weak<RefCell<EvaluationContext>>,
 }
 
 impl EvaluationContext {

@@ -17,27 +17,35 @@ pub struct ParseEvent {
 
 impl ParseEvent {
     pub fn new(location: SourceLocation, event_type: ParseEventType) -> ParseEvent {
-        ParseEvent { location: location, event_type: event_type }
+        ParseEvent {
+            location: location,
+            event_type: event_type,
+        }
     }
 }
 
 // Used internally by Parser
 type FilteredLexer<'a> = iter::Filter<&'a mut ir::Lexer, fn(&ir::Token) -> bool>;
 
-pub struct Parser<'a> where {
+pub struct Parser<'a> {
     lexer: FilteredLexer<'a>,
     level: usize,
 }
 
-impl<'a> Parser <'a> {
+impl<'a> Parser<'a> {
     pub fn new(lexer: &'a mut ir::Lexer) -> Parser<'a> {
-        fn is_non_white(t: &ir::Token) -> bool { t.token_type != ir::TokenType::Whitespace }
+        fn is_non_white(t: &ir::Token) -> bool {
+            t.token_type != ir::TokenType::Whitespace
+        }
         // Force the function to the correct type.
         // TODO: figure out why this is necessary (see
         // http://stackoverflow.com/questions/34459976/; there should be an implicit cast.)
         let filter: fn(&ir::Token) -> bool = is_non_white;
         let filtered = lexer.filter(filter);
-        Parser { lexer: filtered, level: 0 }
+        Parser {
+            lexer: filtered,
+            level: 0,
+        }
     }
 }
 
@@ -64,15 +72,15 @@ impl<'a> Iterator for Parser<'a> {
                                     let op_t_loc = op_t.location.clone();
                                     Some(ParseEvent::new(
                                         SourceLocation::span(&loc, &op_t_loc),
-                                        ParseEventType::Open { op_text: op_t_loc }
+                                        ParseEventType::Open { op_text: op_t_loc },
                                     ))
                                 } else {
                                     Some(ParseEvent::new(op_t.location, ParseEventType::Error))
                                 }
-                            },
+                            }
                             None => Some(ParseEvent::new(token.location, ParseEventType::Error)),
                         }
-                    },
+                    }
                     ir::TokenType::Close => {
                         if self.level == 0 {
                             Some(ParseEvent::new(token.location, ParseEventType::Error))
@@ -80,12 +88,17 @@ impl<'a> Iterator for Parser<'a> {
                             self.level -= 1;
                             Some(ParseEvent::new(token.location, ParseEventType::Close))
                         }
-                    },
-                    ir::TokenType::Symbol => Some(ParseEvent::new(token.location, ParseEventType::Error)),
-                    ir::TokenType::Integer => Some(ParseEvent::new(token.location, ParseEventType::Integer)),
+                    }
+                    ir::TokenType::Symbol => Some(
+                        ParseEvent::new(token.location, ParseEventType::Error),
+                    ),
+                    ir::TokenType::Integer => Some(ParseEvent::new(
+                        token.location,
+                        ParseEventType::Integer,
+                    )),
                 }
-            },
-            None => None
+            }
+            None => None,
         }
     }
 }

@@ -40,7 +40,10 @@ impl operation::Value for ValueResult {}
 pub type Operation = operation::Operation<ValueResult>;
 pub type Expression = operation::Expression<ValueResult>;
 
-fn propagate_errors(op: fn(&[Value]) -> EvaluationResult<ValueResult>, operands: &[ValueResult]) -> EvaluationResult<ValueResult> {
+fn propagate_errors(
+    op: fn(&[Value]) -> EvaluationResult<ValueResult>,
+    operands: &[ValueResult],
+) -> EvaluationResult<ValueResult> {
     let mut values = Vec::<Value>::with_capacity(operands.len());
     for operand in operands.iter() {
         match *operand {
@@ -55,10 +58,13 @@ fn propagate_errors(op: fn(&[Value]) -> EvaluationResult<ValueResult>, operands:
 
 // TODO: put a generic version of this in the IR code?
 // TODO: the op function really should be returning an EvaluationResult, not a ValueResult.
-fn binary_op(op: fn(&Value, &Value) -> EvaluationResult<ValueResult>, operands: &[Value]) -> EvaluationResult<ValueResult> {
+fn binary_op(
+    op: fn(&Value, &Value) -> EvaluationResult<ValueResult>,
+    operands: &[Value],
+) -> EvaluationResult<ValueResult> {
     match operands.len() {
         2 => op(&operands[0], &operands[1]),
-        _ => Total(Err(ValueError {}))
+        _ => Total(Err(ValueError {})),
     }
 }
 
@@ -67,9 +73,7 @@ fn add(args: &[ValueResult]) -> EvaluationResult<ValueResult> {
         match a {
             &Value::Integer(a_num) => {
                 match b {
-                    &Value::Integer(b_num) => {
-                        Total(Ok(Value::Integer(a_num + b_num)))
-                    }
+                    &Value::Integer(b_num) => Total(Ok(Value::Integer(a_num + b_num))),
                 }
             }
         }
@@ -85,7 +89,11 @@ fn add(args: &[ValueResult]) -> EvaluationResult<ValueResult> {
 const ADD_OP: Operation = Operation::new("add", add);
 
 pub fn default_operation_map() -> OperationGroup<ValueResult> {
-    OperationGroup::<ValueResult>::new([
-        ("add", ADD_OP),
-    ].iter().cloned().map(|i| (Box::<str>::from(i.0), i.1)).collect())
+    OperationGroup::<ValueResult>::new(
+        [("add", ADD_OP)]
+            .iter()
+            .cloned()
+            .map(|i| (Box::<str>::from(i.0), i.1))
+            .collect(),
+    )
 }

@@ -25,7 +25,10 @@ pub struct Lexer {
 
 impl Lexer {
     pub fn new(source: Rc<base::SourceText>) -> Lexer {
-        Lexer { source: source, offset: 0 }
+        Lexer {
+            source: source,
+            offset: 0,
+        }
     }
 
     // TODO: move the Some to the caller?
@@ -34,7 +37,7 @@ impl Lexer {
         self.offset += length;
         Some(Token {
             token_type: token_type,
-            location: base::SourceLocation::new(self.source.clone(), start, length)
+            location: base::SourceLocation::new(self.source.clone(), start, length),
         })
     }
 }
@@ -44,7 +47,7 @@ impl Iterator for Lexer {
 
     fn next(&mut self) -> Option<Token> {
         let source = self.source.clone();
-        let remaining = &source.text()[self.offset ..];
+        let remaining = &source.text()[self.offset..];
 
         if remaining.len() == 0 {
             return None;
@@ -73,7 +76,7 @@ impl Iterator for Lexer {
         // (Allows for "non-identifier" symbols)
         if charclass::is_identifier_start(&first_char) {
             let first_len = first_char.len_utf8();
-            let rest = &remaining[first_len ..];
+            let rest = &remaining[first_len..];
             let rest_len = charclass::match_length(rest, charclass::is_identifier);
             return self.pop_token(TokenType::Symbol, first_len + rest_len);
         }

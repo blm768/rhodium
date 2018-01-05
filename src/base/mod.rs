@@ -35,7 +35,11 @@ pub struct SourceLocation {
 
 impl SourceLocation {
     pub fn new(source: Rc<SourceText>, offset: usize, length: usize) -> SourceLocation {
-        SourceLocation { source: source, offset: offset, length: length }
+        SourceLocation {
+            source: source,
+            offset: offset,
+            length: length,
+        }
     }
 
     pub fn end(&self) -> usize {
@@ -50,12 +54,12 @@ impl SourceLocation {
         SourceLocation {
             source: loc1.source.clone(),
             offset: loc1.offset,
-            length: loc2.end() - loc1.offset
+            length: loc2.end() - loc1.offset,
         }
     }
 
 
     pub fn text(&self) -> &str {
-        &self.source.text[self.offset .. self.offset + self.length]
+        &self.source.text[self.offset..self.offset + self.length]
     }
 }

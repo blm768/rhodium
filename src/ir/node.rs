@@ -11,7 +11,7 @@ pub enum NodeType {
 //TODO: remove this?
 pub enum ProtoNode<'a, Value: operation::Value + 'static> {
     // TODO: use some kind of BigInt?
-    Integer {value: usize},
+    Integer { value: usize },
     // TODO: support strings.
     Operation {
         operation: &'static Operation<Value>,
