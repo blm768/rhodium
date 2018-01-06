@@ -49,7 +49,7 @@ fn propagate_errors(
         match *operand {
             Ok(ref val) => values.push(val.clone()),
             // TODO: combine multiple errors if present.
-            Err(ref err) => return Total(Err(err.clone())),
+            Err(err) => return Total(Err(err)),
         }
     }
 
@@ -69,9 +69,9 @@ fn binary_op(
 
 fn add(args: &[ValueResult]) -> EvaluationResult<ValueResult> {
     fn do_add(a: &Value, b: &Value) -> EvaluationResult<ValueResult> {
-        match a {
-            &Value::Integer(a_num) => match b {
-                &Value::Integer(b_num) => Total(Ok(Value::Integer(a_num + b_num))),
+        match *a {
+            Value::Integer(a_num) => match *b {
+                Value::Integer(b_num) => Total(Ok(Value::Integer(a_num + b_num))),
             },
         }
     }
@@ -86,7 +86,7 @@ fn add(args: &[ValueResult]) -> EvaluationResult<ValueResult> {
 const ADD_OP: Operation = Operation::new("add", add);
 
 /**
- * Returns the default Rhodium OperationGroup
+ * Returns the default Rhodium `OperationGroup`
  */
 pub fn default_operations() -> OperationGroup<ValueResult> {
     OperationGroup::<ValueResult>::new(

@@ -21,6 +21,10 @@ impl SourceText {
     pub fn len(&self) -> usize {
         self.text.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.text.is_empty()
+    }
 }
 
 // TODO: split into "location" and "range"?
@@ -52,12 +56,11 @@ impl SourceLocation {
         assert!(loc1.offset <= loc2.end());
 
         SourceLocation {
-            source: loc1.source.clone(),
+            source: Rc::clone(&loc1.source),
             offset: loc1.offset,
             length: loc2.end() - loc1.offset,
         }
     }
-
 
     pub fn text(&self) -> &str {
         &self.source.text[self.offset..self.offset + self.length]

@@ -33,9 +33,9 @@ impl<V: Value + 'static> OperandList<V> {
     pub fn new(operands: Vec<Expression<V>>) -> OperandList<V> {
         let num_partial = operands
             .iter()
-            .filter(|operand| match *operand {
-                &Expression::Total(_) => false,
-                &Expression::Partial(_) => true,
+            .filter(|operand| match **operand {
+                Expression::Total(_) => false,
+                Expression::Partial(_) => true,
             })
             .count();
 
@@ -51,12 +51,10 @@ impl<V: Value + 'static> OperandList<V> {
             )
         } else {
             // Set children's indices
-            let mut index: usize = 0;
-            for operand in operands.iter() {
-                if let &Expression::Partial(ref partial) = operand {
+            for (index, operand) in operands.iter().enumerate() {
+                if let Expression::Partial(ref partial) = *operand {
                     partial.index.set(index);
                 }
-                index += 1;
             }
 
             OperandList::Partial(operands, num_partial)
@@ -99,9 +97,9 @@ impl<V: Value + 'static> PartialExpression<V> {
         // Set operands' listeners.
         {
             let operands = &*exp.operands.borrow();
-            if let &OperandList::Partial(ref operands, _) = operands {
+            if let OperandList::Partial(ref operands, _) = *operands {
                 for operand in operands.iter() {
-                    if let &Expression::Partial(ref oi) = operand {
+                    if let Expression::Partial(ref oi) = *operand {
                         oi.listener
                             .set(Some(Rc::<PartialExpression<V>>::downgrade(&exp)));
                     }
@@ -121,7 +119,7 @@ impl<V: Value + 'static> EvaluationListener<V> for PartialExpression<V> {
         // If the OperandList becomes total, the new total list will be stored here.
         let mut new_operands: Option<OperandList<V>> = None;
 
-        if let &mut OperandList::Partial(ref mut operands, ref mut num_partial) = operand_list {
+        if let OperandList::Partial(ref mut operands, ref mut num_partial) = *operand_list {
             if let Expression::Partial(_) = operands[partial.index.get()] {
                 operands[partial.index.get()] = Expression::Total(value);
                 *num_partial -= 1;
@@ -130,8 +128,8 @@ impl<V: Value + 'static> EvaluationListener<V> for PartialExpression<V> {
                 if *num_partial == 0 {
                     let total_operands = operands
                         .iter()
-                        .map(|o| match o {
-                            &Expression::Total(ref value) => value.clone(),
+                        .map(|o| match *o {
+                            Expression::Total(ref value) => value.clone(),
                             _ => unreachable!(),
                         })
                         .collect::<Vec<_>>();
@@ -150,9 +148,9 @@ impl<V: Value + 'static> EvaluationListener<V> for PartialExpression<V> {
             // We know that there won't be a mutable borrow here because no one else should
             // be setting the listener.
             let maybe_listener = unsafe { &*self.listener.as_ptr() };
-            if let &Some(ref weak_listener) = maybe_listener {
+            if let Some(ref weak_listener) = *maybe_listener {
                 if let Some(ref listener) = weak_listener.upgrade() {
-                    listener.on_evaluated(&self, value);
+                    listener.on_evaluated(self, value);
                 }
             }
         }
@@ -227,7 +225,7 @@ impl<V: Value + 'static> Operation<V> {
         }
     }
 
-    pub fn evaluate(&self, operands: &Vec<V>) -> EvaluationResult<V> {
+    pub fn evaluate(&self, operands: &[V]) -> EvaluationResult<V> {
         (self.evaluator)(operands)
     }
 }

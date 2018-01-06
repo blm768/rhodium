@@ -37,7 +37,7 @@ impl Lexer {
         self.offset += length;
         Some(Token {
             token_type: token_type,
-            location: base::SourceLocation::new(self.source.clone(), start, length),
+            location: base::SourceLocation::new(Rc::clone(&self.source), start, length),
         })
     }
 }
@@ -46,10 +46,10 @@ impl Iterator for Lexer {
     type Item = Token;
 
     fn next(&mut self) -> Option<Token> {
-        let source = self.source.clone();
+        let source = Rc::clone(&self.source);
         let remaining = &source.text()[self.offset..];
 
-        if remaining.len() == 0 {
+        if remaining.is_empty() {
             return None;
         }
 
