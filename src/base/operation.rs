@@ -192,8 +192,11 @@ impl<V: Value + 'static> Expression<V> {
         Expression::Partial(PartialExpression::new(op, op_list))
     }
 
-    pub fn from_value(value: V) -> Rc<Expression<V>> {
-        Rc::new(Expression::Total(value))
+    /**
+     * Builds a total Expression from a value
+     */
+    pub fn from_value(value: V) -> Expression<V> {
+        Expression::Total(value)
     }
 }
 
@@ -203,17 +206,15 @@ pub enum EvaluationResult<V: Value + 'static> {
 }
 
 // TODO: handle lazy ops? (Consuming a stream of ProtoNodes *might* be a workable solution).
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct Operation<V: Value + 'static> {
     name: &'static str,
     evaluator: fn(&[V]) -> EvaluationResult<V>,
 }
 
-impl<V: Value + 'static> Debug for Operation<V> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Operation {{ name: {} }}", self.name)
-    }
-}
+// For some reason I don't understand, #[derive(Copy)] seems to fail silently, so we have
+// to mark this type manually.
+impl<V: Value + 'static> Copy for Operation<V> {}
 
 impl<V: Value + 'static> Operation<V> {
     pub const fn new(
@@ -228,6 +229,12 @@ impl<V: Value + 'static> Operation<V> {
 
     pub fn evaluate(&self, operands: &Vec<V>) -> EvaluationResult<V> {
         (self.evaluator)(operands)
+    }
+}
+
+impl<V: Value + 'static> Debug for Operation<V> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Operation {{ name: {} }}", self.name)
     }
 }
 

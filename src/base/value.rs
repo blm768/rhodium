@@ -33,7 +33,7 @@ impl Error for ValueError {
     }
 }
 
-type ValueResult = Result<Value, ValueError>;
+pub type ValueResult = Result<Value, ValueError>;
 
 impl operation::Value for ValueResult {}
 
@@ -57,7 +57,6 @@ fn propagate_errors(
 }
 
 // TODO: put a generic version of this in the IR code?
-// TODO: the op function really should be returning an EvaluationResult, not a ValueResult.
 fn binary_op(
     op: fn(&Value, &Value) -> EvaluationResult<ValueResult>,
     operands: &[Value],
@@ -71,11 +70,9 @@ fn binary_op(
 fn add(args: &[ValueResult]) -> EvaluationResult<ValueResult> {
     fn do_add(a: &Value, b: &Value) -> EvaluationResult<ValueResult> {
         match a {
-            &Value::Integer(a_num) => {
-                match b {
-                    &Value::Integer(b_num) => Total(Ok(Value::Integer(a_num + b_num))),
-                }
-            }
+            &Value::Integer(a_num) => match b {
+                &Value::Integer(b_num) => Total(Ok(Value::Integer(a_num + b_num))),
+            },
         }
     }
 
@@ -88,7 +85,10 @@ fn add(args: &[ValueResult]) -> EvaluationResult<ValueResult> {
 
 const ADD_OP: Operation = Operation::new("add", add);
 
-pub fn default_operation_map() -> OperationGroup<ValueResult> {
+/**
+ * Returns the default Rhodium OperationGroup
+ */
+pub fn default_operations() -> OperationGroup<ValueResult> {
     OperationGroup::<ValueResult>::new(
         [("add", ADD_OP)]
             .iter()
