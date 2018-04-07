@@ -1,7 +1,6 @@
 use base::SourceLocation;
 
-use base::operation;
-use base::operation::Operation;
+use base::operation::{EvaluationContext, Operation};
 
 pub enum NodeType {
     Operation,
@@ -9,22 +8,24 @@ pub enum NodeType {
 }
 
 //TODO: remove this?
-pub enum ProtoNode<'a, Value: operation::Value + 'static> {
+pub enum ProtoNode<'a, C: EvaluationContext + 'a> {
     // TODO: use some kind of BigInt?
-    Integer { value: usize },
+    Integer {
+        value: usize,
+    },
     // TODO: support strings.
     Operation {
-        operation: &'static Operation<Value>,
-        operands: &'a Iterator<Item = ProtoNode<'a, Value>>,
+        operation: Operation<C>,
+        operands: &'a Iterator<Item = ProtoNode<'a, C>>,
     },
 }
 
-trait Node<Value> {
+trait Node<C: EvaluationContext> {
     fn location(&self) -> SourceLocation;
     fn node_type(&self) -> NodeType;
-    fn value(&self) -> Value;
+    fn value(&self) -> C::Value;
 }
 
-struct OperationNode<Value: operation::Value + 'static> {
-    operation: &'static Operation<Value>,
+struct OperationNode<C: EvaluationContext> {
+    operation: Operation<C>,
 }

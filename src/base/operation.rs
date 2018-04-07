@@ -8,29 +8,32 @@ use std::rc::{Rc, Weak};
 /**
  * A trait for all values that can be handled by Operation
  */
+// TODO: fold this into EvaluationContext?
 pub trait Value: Clone + Debug {}
 
-// TODO: use this.
-pub trait ExpressionContext<V: Value + 'static> {}
+// TODO: remove Clone once it's not required for #[derive(Clone)] on Operation?
+pub trait EvaluationContext: Clone {
+    type Value: Value + 'static;
+}
 
 /**
  * Responds to expressions becoming total
  */
-pub trait EvaluationListener<V: Value + 'static>: Debug {
-    fn on_evaluated(&self, partial: &PartialExpression<V>, value: V);
+pub trait EvaluationListener<C: EvaluationContext>: Debug {
+    fn on_evaluated(&self, partial: &PartialExpression<C>, value: C::Value);
 }
 
 /**
  * A list of operands
  */
 #[derive(Debug)]
-pub enum OperandList<V: Value + 'static> {
-    Total(Vec<V>),
-    Partial(Vec<Expression<V>>, usize),
+pub enum OperandList<C: EvaluationContext> {
+    Total(Vec<C::Value>),
+    Partial(Vec<Expression<C>>, usize),
 }
 
-impl<V: Value + 'static> OperandList<V> {
-    pub fn new(operands: Vec<Expression<V>>) -> OperandList<V> {
+impl<C: EvaluationContext> OperandList<C> {
+    pub fn new(operands: Vec<Expression<C>>) -> OperandList<C> {
         let num_partial = operands
             .iter()
             .filter(|operand| match **operand {
@@ -65,10 +68,11 @@ impl<V: Value + 'static> OperandList<V> {
 /**
  * Represents the "meat" of a partially-evaluated expression
  */
-pub struct PartialExpression<V: Value + 'static> {
-    operation: Operation<V>,
-    operands: RefCell<OperandList<V>>,
-    listener: Cell<Option<Weak<EvaluationListener<V>>>>,
+pub struct PartialExpression<C: EvaluationContext> {
+    operation: Operation<C>,
+    context: C,
+    operands: RefCell<OperandList<C>>,
+    listener: Cell<Option<Weak<EvaluationListener<C>>>>,
     /**
      * The operand's index in the parent expression
      *
@@ -78,17 +82,18 @@ pub struct PartialExpression<V: Value + 'static> {
 }
 
 // Since we can't derive Debug for Cell<Option<Weak<...>>>, we have to implement it manually.
-impl<V: Value + 'static> Debug for PartialExpression<V> {
+impl<C: EvaluationContext> Debug for PartialExpression<C> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         // TODO: implement properly.
         write!(f, "PartialExpression")
     }
 }
 
-impl<V: Value + 'static> PartialExpression<V> {
-    pub fn new(op: Operation<V>, operands: OperandList<V>) -> Rc<PartialExpression<V>> {
+impl<C: EvaluationContext + 'static> PartialExpression<C> {
+    pub fn new(op: Operation<C>, context: C, operands: OperandList<C>) -> Rc<PartialExpression<C>> {
         let exp = Rc::new(PartialExpression {
             operation: op,
+            context: context,
             operands: RefCell::new(operands),
             listener: Cell::new(None),
             index: Cell::new(0),
@@ -101,7 +106,7 @@ impl<V: Value + 'static> PartialExpression<V> {
                 for operand in operands.iter() {
                     if let Expression::Partial(ref oi) = *operand {
                         oi.listener
-                            .set(Some(Rc::<PartialExpression<V>>::downgrade(&exp)));
+                            .set(Some(Rc::<PartialExpression<C>>::downgrade(&exp)));
                     }
                 }
             }
@@ -111,13 +116,13 @@ impl<V: Value + 'static> PartialExpression<V> {
     }
 }
 
-impl<V: Value + 'static> EvaluationListener<V> for PartialExpression<V> {
-    fn on_evaluated(&self, partial: &PartialExpression<V>, value: V) {
+impl<C: EvaluationContext> EvaluationListener<C> for PartialExpression<C> {
+    fn on_evaluated(&self, partial: &PartialExpression<C>, value: C::Value) {
         let operand_list = &mut *self.operands.borrow_mut();
 
         let mut eval_result = EvaluationResult::Pending;
         // If the OperandList becomes total, the new total list will be stored here.
-        let mut new_operands: Option<OperandList<V>> = None;
+        let mut new_operands: Option<OperandList<C>> = None;
 
         if let OperandList::Partial(ref mut operands, ref mut num_partial) = *operand_list {
             if let Expression::Partial(_) = operands[partial.index.get()] {
@@ -134,7 +139,7 @@ impl<V: Value + 'static> EvaluationListener<V> for PartialExpression<V> {
                         })
                         .collect::<Vec<_>>();
 
-                    eval_result = self.operation.evaluate(&total_operands);
+                    eval_result = self.operation.evaluate(&self.context, &total_operands);
                     new_operands = Some(OperandList::Total(total_operands));
                 }
             }
@@ -161,39 +166,43 @@ impl<V: Value + 'static> EvaluationListener<V> for PartialExpression<V> {
  * An expression is either a value or an operation applied to a list of expressions.
  */
 #[derive(Debug)]
-pub enum Expression<V: Value + 'static> {
+pub enum Expression<C: EvaluationContext> {
     /// An expression that has been totally evaluated
-    Total(V),
+    Total(C::Value),
     /// An expression which has not been totally evaluated
-    Partial(Rc<PartialExpression<V>>),
+    Partial(Rc<PartialExpression<C>>),
 }
 
-impl<V: Value + 'static> Expression<V> {
+impl<C: EvaluationContext + 'static> Expression<C> {
     /**
      * Builds an Expression from an Operation and a list of Operands
      */
-    pub fn from_op(op: Operation<V>, operands: Vec<Expression<V>>) -> Expression<V> {
+    pub fn from_op(op: Operation<C>, context: &C, operands: Vec<Expression<C>>) -> Expression<C> {
         let op_list = OperandList::new(operands);
 
         if let OperandList::Total(operand_values) = op_list {
-            let eval_result = op.evaluate(&operand_values);
+            let eval_result = op.evaluate(&context, &operand_values);
 
             return match eval_result {
                 EvaluationResult::Total(val) => Expression::Total(val),
                 EvaluationResult::Pending => {
-                    let partial = PartialExpression::new(op, OperandList::Total(operand_values));
+                    let partial = PartialExpression::new(
+                        op,
+                        context.clone(),
+                        OperandList::Total(operand_values),
+                    );
                     Expression::Partial(partial)
                 }
             };
         }
 
-        Expression::Partial(PartialExpression::new(op, op_list))
+        Expression::Partial(PartialExpression::new(op, context.clone(), op_list))
     }
 
     /**
      * Builds a total Expression from a value
      */
-    pub fn from_value(value: V) -> Expression<V> {
+    pub fn from_value(value: C::Value) -> Expression<C> {
         Expression::Total(value)
     }
 }
@@ -203,49 +212,49 @@ pub enum EvaluationResult<V: Value + 'static> {
     Pending,
 }
 
-// TODO: handle lazy ops? (Consuming a stream of ProtoNodes *might* be a workable solution).
+// TODO: handle "lazy"/quoted ops? (Consuming a stream of ProtoNodes *might* be a workable solution).
 #[derive(Clone)]
-pub struct Operation<V: Value + 'static> {
+pub struct Operation<C: EvaluationContext> {
     name: &'static str,
-    evaluator: fn(&[V]) -> EvaluationResult<V>,
+    evaluator: fn(&C, &[C::Value]) -> EvaluationResult<C::Value>,
 }
 
-// For some reason I don't understand, #[derive(Copy)] seems to fail silently, so we have
-// to mark this type manually.
-impl<V: Value + 'static> Copy for Operation<V> {}
-
-impl<V: Value + 'static> Operation<V> {
+impl<C: EvaluationContext> Operation<C> {
     pub const fn new(
         name: &'static str,
-        evaluator: fn(&[V]) -> EvaluationResult<V>,
-    ) -> Operation<V> {
+        evaluator: fn(&C, &[C::Value]) -> EvaluationResult<C::Value>,
+    ) -> Operation<C> {
         Operation {
             name: name,
             evaluator: evaluator,
         }
     }
 
-    pub fn evaluate(&self, operands: &[V]) -> EvaluationResult<V> {
-        (self.evaluator)(operands)
+    pub fn evaluate(&self, context: &C, operands: &[C::Value]) -> EvaluationResult<C::Value> {
+        (self.evaluator)(context, operands)
     }
 }
 
-impl<V: Value + 'static> Debug for Operation<V> {
+// For some reason I don't understand, #[derive(Copy)] seems to fail silently, so we have
+// to mark this type manually.
+impl<C: EvaluationContext> Copy for Operation<C> {}
+
+impl<C: EvaluationContext> Debug for Operation<C> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Operation {{ name: {} }}", self.name)
     }
 }
 
-pub struct OperationGroup<V: Value + 'static> {
-    map: HashMap<Box<str>, Operation<V>>,
+pub struct OperationGroup<C: EvaluationContext> {
+    map: HashMap<Box<str>, Operation<C>>,
 }
 
-impl<V: Value + 'static> OperationGroup<V> {
-    pub const fn new(map: HashMap<Box<str>, Operation<V>>) -> OperationGroup<V> {
+impl<C: EvaluationContext> OperationGroup<C> {
+    pub const fn new(map: HashMap<Box<str>, Operation<C>>) -> OperationGroup<C> {
         OperationGroup { map: map }
     }
 
-    pub fn get(&self, name: &str) -> Option<&Operation<V>> {
+    pub fn get(&self, name: &str) -> Option<&Operation<C>> {
         self.map.get(name)
     }
 }
