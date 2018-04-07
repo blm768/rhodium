@@ -2,11 +2,9 @@ pub fn match_length<F>(s: &str, predicate: F) -> usize
 where
     F: Fn(&char) -> bool,
 {
-
-    s.chars().take_while(predicate).fold(
-        0,
-        |a, c| a + c.len_utf8(),
-    )
+    s.chars()
+        .take_while(predicate)
+        .fold(0, |a, c| a + c.len_utf8())
 }
 
 pub fn is_whitespace(c: &char) -> bool {

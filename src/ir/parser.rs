@@ -89,13 +89,12 @@ impl<'a> Iterator for Parser<'a> {
                             Some(ParseEvent::new(token.location, ParseEventType::Close))
                         }
                     }
-                    ir::TokenType::Symbol => Some(
-                        ParseEvent::new(token.location, ParseEventType::Error),
-                    ),
-                    ir::TokenType::Integer => Some(ParseEvent::new(
-                        token.location,
-                        ParseEventType::Integer,
-                    )),
+                    ir::TokenType::Symbol => {
+                        Some(ParseEvent::new(token.location, ParseEventType::Error))
+                    }
+                    ir::TokenType::Integer => {
+                        Some(ParseEvent::new(token.location, ParseEventType::Integer))
+                    }
                 }
             }
             None => None,
