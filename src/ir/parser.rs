@@ -1,7 +1,11 @@
+use std::error::Error;
+use std::fmt;
+use std::fmt::Display;
 use std::iter;
 
-use base::SourceLocation;
+use base::source::SourceLocation;
 use ir;
+use ir::{Lexer, LexicalError};
 
 pub enum ParseEventType {
     Error,
@@ -24,8 +28,33 @@ impl ParseEvent {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum ParseErrorCause {
+    Lexical(LexicalError),
+}
+
+#[derive(Clone, Debug)]
+pub struct ParseError {
+    location: SourceLocation,
+    cause: ParseErrorCause,
+}
+
+impl Display for ParseError {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        match self.cause {
+            ParseErrorCause::Lexical(ref err) => err.fmt(formatter),
+        }
+    }
+}
+
+impl Error for ParseError {
+    fn description(&self) -> &str {
+        "parsing error"
+    }
+}
+
 // Used internally by Parser
-type FilteredLexer<'a> = iter::Filter<&'a mut ir::Lexer, fn(&ir::Token) -> bool>;
+type FilteredLexer<'a> = iter::Filter<&'a mut Lexer, fn(&Result<ir::Token, LexicalError>) -> bool>;
 
 pub struct Parser<'a> {
     lexer: FilteredLexer<'a>,
@@ -33,15 +62,15 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(lexer: &'a mut ir::Lexer) -> Parser<'a> {
-        fn is_non_white(t: &ir::Token) -> bool {
-            t.token_type != ir::TokenType::Whitespace
+    pub fn new(lexer: &'a mut Lexer) -> Parser<'a> {
+        fn is_non_white(t: &Result<ir::Token, LexicalError>) -> bool {
+            match t {
+                Ok(ref tok) => tok.token_type != ir::TokenType::Whitespace,
+                _ => true,
+            }
         }
-        // Force the function to the correct type.
-        // TODO: figure out why this is necessary (see
-        // http://stackoverflow.com/questions/34459976/; there should be an implicit cast.)
-        let filter: fn(&ir::Token) -> bool = is_non_white;
-        let filtered = lexer.filter(filter);
+
+        let filtered = lexer.filter(is_non_white as fn(&Result<ir::Token, LexicalError>) -> bool);
         Parser {
             lexer: filtered,
             level: 0,
@@ -56,27 +85,29 @@ impl<'a> Iterator for Parser<'a> {
         let next_token = self.lexer.next();
 
         match next_token {
-            Some(token) => {
-                let loc = token.location.clone();
-
+            Some(Ok(token)) => {
                 match token.token_type {
-                    ir::TokenType::Invalid => None,
                     ir::TokenType::Whitespace => panic!("Whitespace should be filtered out"),
                     ir::TokenType::Open => {
                         let op_token = self.lexer.next();
                         match op_token {
-                            Some(op_t) => {
+                            Some(Ok(op_t)) => {
                                 if op_t.token_type == ir::TokenType::Symbol {
                                     self.level += 1;
 
-                                    let op_t_loc = op_t.location.clone();
                                     Some(ParseEvent::new(
-                                        SourceLocation::span(&loc, &op_t_loc),
-                                        ParseEventType::Open { op_text: op_t_loc },
+                                        SourceLocation::span(&token.location, &op_t.location),
+                                        ParseEventType::Open {
+                                            op_text: op_t.location.clone(),
+                                        },
                                     ))
                                 } else {
                                     Some(ParseEvent::new(op_t.location, ParseEventType::Error))
                                 }
+                            }
+                            Some(Err(_)) => {
+                                // TODO: propagate error info.
+                                Some(ParseEvent::new(token.location, ParseEventType::Error))
                             }
                             None => Some(ParseEvent::new(token.location, ParseEventType::Error)),
                         }
@@ -97,6 +128,7 @@ impl<'a> Iterator for Parser<'a> {
                     }
                 }
             }
+            Some(Err(_)) => None, // TODO: handle errors better.
             None => None,
         }
     }

@@ -1,4 +1,4 @@
-use base::SourceLocation;
+use base::source::SourceLocation;
 
 use base::operation::{EvaluationContext, Operation};
 
