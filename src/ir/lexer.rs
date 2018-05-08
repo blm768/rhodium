@@ -51,6 +51,14 @@ impl Lexer {
         }
     }
 
+    pub fn source(&self) -> Rc<SourceText> {
+        Rc::clone(&self.source)
+    }
+
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
     fn pop_token(&mut self, token_type: TokenType, length: usize) -> Token {
         let start = self.offset;
         self.offset += length;
@@ -91,7 +99,7 @@ impl Iterator for Lexer {
             return Some(Ok(self.pop_token(TokenType::Integer, int_length)));
         }
 
-        // TODO: just make this the "default" token type (if nothing else matches)?
+        // TODO: just make symbols the "default" token type (if nothing else matches)?
         // (Allows for "non-identifier" symbols)
         if charclass::is_identifier_start(&first_char) {
             let first_len = first_char.len_utf8();
