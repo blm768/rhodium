@@ -180,7 +180,10 @@ impl<'a> OperationIterator<'a> {
                 error.location,
                 ParseErrorCause::Lexical,
             ))),
-            None => None,
+            None => Some(Err(ParseError::new(
+                SourceLocation::new(self.lexer.source(), self.lexer.offset(), 0),
+                ParseErrorCause::UnclosedParen,
+            ))),
         }
     }
 }
