@@ -10,7 +10,7 @@ pub struct SourceText {
 
 impl SourceText {
     pub fn new(text: String) -> SourceText {
-        SourceText { text: text }
+        SourceText { text }
     }
 
     pub fn text(&self) -> &str {
@@ -39,9 +39,9 @@ pub struct SourceLocation {
 impl SourceLocation {
     pub fn new(source: Rc<SourceText>, offset: usize, length: usize) -> SourceLocation {
         SourceLocation {
-            source: source,
-            offset: offset,
-            length: length,
+            source,
+            offset,
+            length,
         }
     }
 

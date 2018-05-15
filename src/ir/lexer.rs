@@ -45,10 +45,7 @@ pub struct Lexer {
 
 impl Lexer {
     pub fn new(source: Rc<SourceText>) -> Lexer {
-        Lexer {
-            source: source,
-            offset: 0,
-        }
+        Lexer { source, offset: 0 }
     }
 
     pub fn source(&self) -> Rc<SourceText> {
@@ -63,7 +60,7 @@ impl Lexer {
         let start = self.offset;
         self.offset += length;
         Token {
-            token_type: token_type,
+            token_type,
             location: SourceLocation::new(Rc::clone(&self.source), start, length),
         }
     }

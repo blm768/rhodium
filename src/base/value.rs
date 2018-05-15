@@ -34,7 +34,7 @@ pub struct ValueError {
 
 impl ValueError {
     pub fn new(cause: ValueErrorCause) -> ValueError {
-        ValueError { cause: cause }
+        ValueError { cause }
     }
 }
 

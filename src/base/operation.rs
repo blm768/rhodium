@@ -93,7 +93,7 @@ impl<C: EvaluationContext + 'static> PartialExpression<C> {
     pub fn new(op: Operation<C>, context: C, operands: OperandList<C>) -> Rc<PartialExpression<C>> {
         let exp = Rc::new(PartialExpression {
             operation: op,
-            context: context,
+            context,
             operands: RefCell::new(operands),
             listener: Cell::new(None),
             index: Cell::new(0),
@@ -224,10 +224,7 @@ impl<C: EvaluationContext> Operation<C> {
         name: &'static str,
         evaluator: fn(&C, &[C::Value]) -> EvaluationResult<C::Value>,
     ) -> Operation<C> {
-        Operation {
-            name: name,
-            evaluator: evaluator,
-        }
+        Operation { name, evaluator }
     }
 
     pub fn evaluate(&self, context: &C, operands: &[C::Value]) -> EvaluationResult<C::Value> {
@@ -251,7 +248,7 @@ pub struct OperationGroup<C: EvaluationContext> {
 
 impl<C: EvaluationContext> OperationGroup<C> {
     pub const fn new(map: HashMap<Box<str>, Operation<C>>) -> OperationGroup<C> {
-        OperationGroup { map: map }
+        OperationGroup { map }
     }
 
     pub fn get(&self, name: &str) -> Option<&Operation<C>> {

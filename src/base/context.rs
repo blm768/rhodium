@@ -49,7 +49,7 @@ pub struct EvaluationContext {
 
 impl EvaluationContext {
     pub fn new(scope: Rc<RefCell<Scope>>) -> EvaluationContext {
-        EvaluationContext { scope: scope }
+        EvaluationContext { scope }
     }
 
     pub fn scope(&self) -> Rc<RefCell<Scope>> {
