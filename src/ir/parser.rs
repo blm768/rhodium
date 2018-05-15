@@ -1,39 +1,26 @@
 use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
-use std::iter::Filter;
 
 use base::source::SourceLocation;
 use ir;
-use ir::lexer::{Lexer, LexicalError, Token};
+use ir::lexer::{Lexer, LexicalError};
 
-/**
- * The type of a parsing event
- *
- * For open events, the location of the operator text is embedded in
- * this enum (for now…)
- */
-pub enum ParseEventType {
-    Open { op_text: SourceLocation },
-    Close,
-    Integer,
-}
-
-/**
- * A parsing event
- */
-pub struct ParseEvent {
+// TODO: rename to ParseElement? (or just Element)?
+pub struct ParseItem<'a> {
     pub location: SourceLocation,
-    pub event_type: ParseEventType,
+    pub data: ParseItemData<'a>,
 }
 
-impl ParseEvent {
-    pub fn new(location: SourceLocation, event_type: ParseEventType) -> ParseEvent {
-        ParseEvent {
-            location: location,
-            event_type: event_type,
-        }
+impl<'a> ParseItem<'a> {
+    pub fn new(location: SourceLocation, data: ParseItemData) -> ParseItem {
+        ParseItem { location, data }
     }
+}
+
+pub enum ParseItemData<'a> {
+    Operation(OperationIterator<'a>),
+    Integer,
 }
 
 #[derive(Clone, Debug)]
@@ -53,10 +40,7 @@ pub struct ParseError {
 
 impl ParseError {
     pub fn new(location: SourceLocation, cause: ParseErrorCause) -> ParseError {
-        ParseError {
-            location: location,
-            cause: cause,
-        }
+        ParseError { location, cause }
     }
 }
 
@@ -72,109 +56,131 @@ impl Error for ParseError {
     }
 }
 
+/*
+ * Helper functions for Parser
+ */
+
+fn next_non_white(lexer: &mut Lexer) -> Option<<Lexer as Iterator>::Item> {
+    fn is_non_white(t: &Result<ir::Token, LexicalError>) -> bool {
+        match t {
+            Ok(ref tok) => tok.token_type != ir::TokenType::Whitespace,
+            _ => true,
+        }
+    }
+
+    lexer.find(is_non_white)
+}
+
 pub struct Parser {
     lexer: Lexer,
-    level: usize,
 }
 
-impl<'a> Parser {
+impl Parser {
     pub fn new(lexer: Lexer) -> Parser {
-        Parser {
-            lexer: lexer,
-            level: 0,
-        }
+        Parser { lexer }
     }
 
-    fn lexer_without_whitespace(
-        &mut self,
-    ) -> Filter<&mut Lexer, fn(&Result<Token, LexicalError>) -> bool> {
-        fn is_non_white(t: &Result<ir::Token, LexicalError>) -> bool {
-            match t {
-                Ok(ref tok) => tok.token_type != ir::TokenType::Whitespace,
-                _ => true,
-            }
-        }
+    /**
+     * Returns the next element (operation or atom)
+     *
+     * TODO: make this implement a StreamingIterator interface instead of this ad-hoc solution?
+     * (We can't use a regular Iterator due to self-borrowing in the return value.)
+     */
+    pub fn next_element<'a>(&'a mut self) -> Option<Result<ParseItem<'a>, ParseError>> {
+        let next_token = next_non_white(&mut self.lexer);
 
-        self.lexer.by_ref().filter(is_non_white)
+        match next_token {
+            Some(Ok(token)) => Some(match token.token_type {
+                ir::TokenType::Whitespace => panic!("Whitespace should be filtered out"),
+                ir::TokenType::Open => match OperationIterator::new(&mut self.lexer) {
+                    Ok(iter) => Ok(ParseItem::new(
+                        token.location,
+                        ParseItemData::Operation(iter),
+                    )),
+                    Err(error) => Err(error),
+                },
+                ir::TokenType::Close => Err(ParseError::new(
+                    token.location,
+                    ParseErrorCause::ExtraCloseParen,
+                )),
+                ir::TokenType::Symbol => Err(ParseError::new(
+                    token.location,
+                    ParseErrorCause::MisplacedSymbol,
+                )),
+                ir::TokenType::Integer => {
+                    Ok(ParseItem::new(token.location, ParseItemData::Integer))
+                }
+            }),
+            Some(Err(error)) => Some(Err(ParseError::new(
+                error.location,
+                ParseErrorCause::Lexical,
+            ))),
+            None => None,
+        }
     }
 }
 
-/*
- * TODO: remove the Iterator interface?
- *
- * (Or maybe return "nested" iterators for stuff inside operations instead of explicit open/close events?)
- */
-impl<'a> Iterator for Parser {
-    type Item = Result<ParseEvent, ParseError>;
+pub struct OperationIterator<'a> {
+    pub op_text: SourceLocation,
+    lexer: &'a mut Lexer,
+}
 
-    fn next(&mut self) -> Option<Self::Item> {
-        let next_token = self.lexer_without_whitespace().next();
+impl<'a> OperationIterator<'a> {
+    /**
+     * Given a lexer that has just "seen" the opening parenthesis of an
+     * operation, returns either an OperationIterator or a syntax error
+     */
+    fn new(lexer: &'a mut Lexer) -> Result<OperationIterator<'a>, ParseError> {
+        let op_token = next_non_white(lexer);
+        match op_token {
+            Some(Ok(op_t)) => {
+                if op_t.token_type == ir::TokenType::Symbol {
+                    Ok(OperationIterator {
+                        op_text: op_t.location,
+                        lexer,
+                    })
+                } else {
+                    Err(ParseError::new(
+                        op_t.location,
+                        ParseErrorCause::MissingOperation,
+                    ))
+                }
+            }
+            Some(Err(error)) => Err(ParseError::new(error.location, ParseErrorCause::Lexical)),
+            None => Err(ParseError::new(
+                SourceLocation::new(lexer.source(), lexer.offset(), 0),
+                ParseErrorCause::UnclosedParen,
+            )),
+        }
+    }
+
+    pub fn next_element<'b>(&'b mut self) -> Option<Result<ParseItem<'b>, ParseError>> {
+        let next_token = next_non_white(self.lexer);
 
         match next_token {
             Some(Ok(token)) => match token.token_type {
                 ir::TokenType::Whitespace => panic!("Whitespace should be filtered out"),
-                ir::TokenType::Open => {
-                    self.level += 1;
-
-                    let op_token = self.lexer_without_whitespace().next();
-                    match op_token {
-                        Some(Ok(op_t)) => {
-                            if op_t.token_type == ir::TokenType::Symbol {
-                                Some(Ok(ParseEvent::new(
-                                    SourceLocation::span(&token.location, &op_t.location),
-                                    ParseEventType::Open {
-                                        op_text: op_t.location.clone(),
-                                    },
-                                )))
-                            } else {
-                                Some(Err(ParseError::new(
-                                    op_t.location,
-                                    ParseErrorCause::MissingOperation,
-                                )))
-                            }
-                        }
-                        Some(Err(error)) => Some(Err(ParseError::new(
-                            error.location,
-                            ParseErrorCause::Lexical,
-                        ))),
-                        None => Some(Err(ParseError::new(
-                            token.location,
-                            ParseErrorCause::UnclosedParen,
-                        ))),
-                    }
-                }
-                ir::TokenType::Close => {
-                    if self.level == 0 {
-                        // TODO: make sure that higher-level code triggers this.
-                        Some(Err(ParseError::new(
-                            token.location,
-                            ParseErrorCause::ExtraCloseParen,
-                        )))
-                    } else {
-                        self.level -= 1;
-                        Some(Ok(ParseEvent::new(token.location, ParseEventType::Close)))
-                    }
-                }
+                ir::TokenType::Open => match OperationIterator::new(self.lexer) {
+                    Ok(iter) => Some(Ok(ParseItem::new(
+                        token.location,
+                        ParseItemData::Operation(iter),
+                    ))),
+                    Err(error) => Some(Err(error)),
+                },
+                ir::TokenType::Close => None,
                 ir::TokenType::Symbol => Some(Err(ParseError::new(
                     token.location,
                     ParseErrorCause::MisplacedSymbol,
                 ))),
                 ir::TokenType::Integer => {
-                    Some(Ok(ParseEvent::new(token.location, ParseEventType::Integer)))
+                    Some(Ok(ParseItem::new(token.location, ParseItemData::Integer)))
                 }
             },
             Some(Err(error)) => Some(Err(ParseError::new(
                 error.location,
                 ParseErrorCause::Lexical,
             ))),
-            None => if self.level == 0 {
-                None
-            } else {
-                Some(Err(ParseError::new(
-                    SourceLocation::new(self.lexer.source(), self.lexer.offset(), 0),
-                    ParseErrorCause::UnclosedParen,
-                )))
-            },
+            None => None,
         }
     }
 }
