@@ -35,7 +35,7 @@ impl Scope {
      *
      * If the name already exists, an error is returned with the value parameter contained inside.
      *
-     * TODO: wrap the value in something?
+     * TODO: figure out how we'll represent non-total values.
      */
     pub fn define_symbol(&mut self, name: &str, value: Value) -> Result<(), Value> {
         self.symbols.insert(name, value)

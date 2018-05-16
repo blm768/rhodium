@@ -6,19 +6,18 @@ use base::source::SourceLocation;
 use ir;
 use ir::lexer::{Lexer, LexicalError};
 
-// TODO: rename to ParseElement? (or just Element)?
-pub struct ParseItem<'a> {
+pub struct Element<'a> {
     pub location: SourceLocation,
-    pub data: ParseItemData<'a>,
+    pub data: ElementData<'a>,
 }
 
-impl<'a> ParseItem<'a> {
-    pub fn new(location: SourceLocation, data: ParseItemData) -> ParseItem {
-        ParseItem { location, data }
+impl<'a> Element<'a> {
+    pub fn new(location: SourceLocation, data: ElementData) -> Element {
+        Element { location, data }
     }
 }
 
-pub enum ParseItemData<'a> {
+pub enum ElementData<'a> {
     Operation(OperationIterator<'a>),
     Integer,
 }
@@ -83,20 +82,16 @@ impl Parser {
     /**
      * Returns the next element (operation or atom)
      *
-     * TODO: make this implement a StreamingIterator interface instead of this ad-hoc solution?
-     * (We can't use a regular Iterator due to self-borrowing in the return value.)
+     * (We can't use the regular Iterator interface due to self-borrowing in the return value.)
      */
-    pub fn next_element<'a>(&'a mut self) -> Option<Result<ParseItem<'a>, ParseError>> {
+    pub fn next_element(&mut self) -> Option<Result<Element, ParseError>> {
         let next_token = next_non_white(&mut self.lexer);
 
         match next_token {
             Some(Ok(token)) => Some(match token.token_type {
                 ir::TokenType::Whitespace => panic!("Whitespace should be filtered out"),
                 ir::TokenType::Open => match OperationIterator::new(&mut self.lexer) {
-                    Ok(iter) => Ok(ParseItem::new(
-                        token.location,
-                        ParseItemData::Operation(iter),
-                    )),
+                    Ok(iter) => Ok(Element::new(token.location, ElementData::Operation(iter))),
                     Err(error) => Err(error),
                 },
                 ir::TokenType::Close => Err(ParseError::new(
@@ -107,9 +102,7 @@ impl Parser {
                     token.location,
                     ParseErrorCause::MisplacedSymbol,
                 )),
-                ir::TokenType::Integer => {
-                    Ok(ParseItem::new(token.location, ParseItemData::Integer))
-                }
+                ir::TokenType::Integer => Ok(Element::new(token.location, ElementData::Integer)),
             }),
             Some(Err(error)) => Some(Err(ParseError::new(
                 error.location,
@@ -154,16 +147,16 @@ impl<'a> OperationIterator<'a> {
         }
     }
 
-    pub fn next_element<'b>(&'b mut self) -> Option<Result<ParseItem<'b>, ParseError>> {
+    pub fn next_element(&mut self) -> Option<Result<Element, ParseError>> {
         let next_token = next_non_white(self.lexer);
 
         match next_token {
             Some(Ok(token)) => match token.token_type {
                 ir::TokenType::Whitespace => panic!("Whitespace should be filtered out"),
                 ir::TokenType::Open => match OperationIterator::new(self.lexer) {
-                    Ok(iter) => Some(Ok(ParseItem::new(
+                    Ok(iter) => Some(Ok(Element::new(
                         token.location,
-                        ParseItemData::Operation(iter),
+                        ElementData::Operation(iter),
                     ))),
                     Err(error) => Some(Err(error)),
                 },
@@ -173,7 +166,7 @@ impl<'a> OperationIterator<'a> {
                     ParseErrorCause::MisplacedSymbol,
                 ))),
                 ir::TokenType::Integer => {
-                    Some(Ok(ParseItem::new(token.location, ParseItemData::Integer)))
+                    Some(Ok(Element::new(token.location, ElementData::Integer)))
                 }
             },
             Some(Err(error)) => Some(Err(ParseError::new(

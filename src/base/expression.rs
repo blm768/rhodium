@@ -8,7 +8,6 @@ use std::rc::{Rc, Weak};
 /**
  * A trait for all values that can be handled by Operation
  */
-// TODO: fold this into EvaluationContext?
 pub trait Value: Clone + Debug {}
 
 // TODO: remove Clone once it's not required for #[derive(Clone)] on Operation?
@@ -212,7 +211,7 @@ pub enum EvaluationResult<V: Value + 'static> {
     Pending,
 }
 
-// TODO: handle "lazy"/quoted ops? (Consuming a stream of ProtoNodes *might* be a workable solution).
+// TODO: handle "lazy"/quoted ops?
 #[derive(Clone)]
 pub struct Operation<C: EvaluationContext> {
     name: &'static str,

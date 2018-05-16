@@ -1,3 +1,4 @@
+use std::cmp;
 use std::error;
 use std::fmt;
 use std::fmt::Display;
@@ -26,13 +27,12 @@ impl SourceText {
     }
 }
 
-// TODO: split into "location" and "range"?
 // TODO: allow retrieval of line numbers.
 // Line nums must be calculated before we get our hands on a SourceLocation pointing into the line.
 #[derive(Clone, Debug)]
 pub struct SourceLocation {
     source: Rc<SourceText>,
-    offset: usize, // TODO: store a Range instead?
+    offset: usize,
     length: usize,
 }
 
@@ -49,15 +49,22 @@ impl SourceLocation {
         self.offset + self.length
     }
 
-    // TODO: make this order-independent?
+    /**
+     * Returns a new SourceLocation that covers the span of both given SourceLocations
+     *
+     * `loc1` and `loc2` must be associated with the same SourceText.
+     */
     pub fn span(loc1: &SourceLocation, loc2: &SourceLocation) -> SourceLocation {
         assert!(Rc::ptr_eq(&loc1.source, &loc2.source));
         assert!(loc1.offset <= loc2.end());
 
+        let offset = cmp::min(loc1.offset, loc2.offset);
+        let end = cmp::max(loc1.end(), loc2.end());
+
         SourceLocation {
             source: Rc::clone(&loc1.source),
-            offset: loc1.offset,
-            length: loc2.end() - loc1.offset,
+            offset,
+            length: end - offset,
         }
     }
 
