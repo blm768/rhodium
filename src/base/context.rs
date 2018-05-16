@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
-use base::operation;
+use base::expression;
 use base::symbol::SymbolTable;
 use base::value::{Value, ValueResult};
 
@@ -57,6 +57,6 @@ impl EvaluationContext {
     }
 }
 
-impl operation::EvaluationContext for EvaluationContext {
+impl expression::EvaluationContext for EvaluationContext {
     type Value = ValueResult;
 }

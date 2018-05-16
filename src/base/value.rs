@@ -4,9 +4,9 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use base::context::EvaluationContext;
-use base::operation;
-use base::operation::EvaluationResult;
-use base::operation::EvaluationResult::Total;
+use base::expression;
+use base::expression::EvaluationResult;
+use base::expression::EvaluationResult::Total;
 
 // A temporary value type (will later be replaced with something more generic)
 #[derive(Clone, Debug)]
@@ -20,7 +20,7 @@ pub enum Value {
  */
 pub type ValueResult = Result<Value, ValueError>;
 
-impl operation::Value for ValueResult {}
+impl expression::Value for ValueResult {}
 
 /**
  * An error triggered during evaluation
@@ -60,9 +60,9 @@ impl Error for ValueError {
     }
 }
 
-pub type Operation = operation::Operation<EvaluationContext>;
-pub type OperationGroup = operation::OperationGroup<EvaluationContext>;
-pub type Expression = operation::Expression<EvaluationContext>;
+pub type Operation = expression::Operation<EvaluationContext>;
+pub type OperationGroup = expression::OperationGroup<EvaluationContext>;
+pub type Expression = expression::Expression<EvaluationContext>;
 
 fn propagate_errors(
     op: fn(&EvaluationContext, &[Value]) -> EvaluationResult<ValueResult>,
