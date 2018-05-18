@@ -48,8 +48,8 @@ impl Lexer {
         Lexer { source, offset: 0 }
     }
 
-    pub fn source(&self) -> Rc<SourceText> {
-        Rc::clone(&self.source)
+    pub fn source(&self) -> &Rc<SourceText> {
+        &self.source
     }
 
     pub fn offset(&self) -> usize {

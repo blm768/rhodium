@@ -1,10 +1,10 @@
 use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
+use std::rc::Rc;
 
-use base::source::SourceLocation;
-use ir;
-use ir::lexer::{Lexer, LexicalError};
+use base::source::{SourceLocation, SourceText};
+use ir::lexer::{Lexer, LexicalError, Token, TokenType};
 
 pub struct Element<'a> {
     pub location: SourceLocation,
@@ -29,6 +29,8 @@ pub enum ParseErrorCause {
     ExtraCloseParen,
     MisplacedSymbol,
     MissingOperation,
+    UndefinedOperation,
+    TrailingText,
 }
 
 #[derive(Clone, Debug)]
@@ -60,9 +62,9 @@ impl Error for ParseError {
  */
 
 fn next_non_white(lexer: &mut Lexer) -> Option<<Lexer as Iterator>::Item> {
-    fn is_non_white(t: &Result<ir::Token, LexicalError>) -> bool {
+    fn is_non_white(t: &Result<Token, LexicalError>) -> bool {
         match t {
-            Ok(ref tok) => tok.token_type != ir::TokenType::Whitespace,
+            Ok(ref tok) => tok.token_type != TokenType::Whitespace,
             _ => true,
         }
     }
@@ -79,6 +81,37 @@ impl Parser {
         Parser { lexer }
     }
 
+    pub fn location(&self) -> SourceLocation {
+        SourceLocation::new(Rc::clone(self.lexer.source()), self.lexer.offset(), 0)
+    }
+
+    pub fn offset(&self) -> usize {
+        self.lexer.offset()
+    }
+
+    pub fn source(&self) -> &Rc<SourceText> {
+        &self.lexer.source()
+    }
+
+    pub fn expect_end_of_source(&mut self) -> Result<(), ParseError> {
+        while let Some(tok) = self.lexer.next() {
+            match tok {
+                Ok(token) => {
+                    if token.token_type != TokenType::Whitespace {
+                        return Err(ParseError::new(
+                            token.location,
+                            ParseErrorCause::TrailingText,
+                        ));
+                    }
+                }
+                Err(error) => {
+                    return Err(ParseError::new(error.location, ParseErrorCause::Lexical));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /**
      * Returns the next element (operation or atom)
      *
@@ -89,20 +122,20 @@ impl Parser {
 
         match next_token {
             Some(Ok(token)) => Some(match token.token_type {
-                ir::TokenType::Whitespace => panic!("Whitespace should be filtered out"),
-                ir::TokenType::Open => match OperationIterator::new(&mut self.lexer) {
+                TokenType::Whitespace => panic!("Whitespace should be filtered out"),
+                TokenType::Open => match OperationIterator::new(&mut self.lexer) {
                     Ok(iter) => Ok(Element::new(token.location, ElementData::Operation(iter))),
                     Err(error) => Err(error),
                 },
-                ir::TokenType::Close => Err(ParseError::new(
+                TokenType::Close => Err(ParseError::new(
                     token.location,
                     ParseErrorCause::ExtraCloseParen,
                 )),
-                ir::TokenType::Symbol => Err(ParseError::new(
+                TokenType::Symbol => Err(ParseError::new(
                     token.location,
                     ParseErrorCause::MisplacedSymbol,
                 )),
-                ir::TokenType::Integer => Ok(Element::new(token.location, ElementData::Integer)),
+                TokenType::Integer => Ok(Element::new(token.location, ElementData::Integer)),
             }),
             Some(Err(error)) => Some(Err(ParseError::new(
                 error.location,
@@ -127,7 +160,7 @@ impl<'a> OperationIterator<'a> {
         let op_token = next_non_white(lexer);
         match op_token {
             Some(Ok(op_t)) => {
-                if op_t.token_type == ir::TokenType::Symbol {
+                if op_t.token_type == TokenType::Symbol {
                     Ok(OperationIterator {
                         op_text: op_t.location,
                         lexer,
@@ -141,7 +174,7 @@ impl<'a> OperationIterator<'a> {
             }
             Some(Err(error)) => Err(ParseError::new(error.location, ParseErrorCause::Lexical)),
             None => Err(ParseError::new(
-                SourceLocation::new(lexer.source(), lexer.offset(), 0),
+                SourceLocation::new(Rc::clone(lexer.source()), lexer.offset(), 0),
                 ParseErrorCause::UnclosedParen,
             )),
         }
@@ -152,29 +185,27 @@ impl<'a> OperationIterator<'a> {
 
         match next_token {
             Some(Ok(token)) => match token.token_type {
-                ir::TokenType::Whitespace => panic!("Whitespace should be filtered out"),
-                ir::TokenType::Open => match OperationIterator::new(self.lexer) {
+                TokenType::Whitespace => panic!("Whitespace should be filtered out"),
+                TokenType::Open => match OperationIterator::new(self.lexer) {
                     Ok(iter) => Some(Ok(Element::new(
                         token.location,
                         ElementData::Operation(iter),
                     ))),
                     Err(error) => Some(Err(error)),
                 },
-                ir::TokenType::Close => None,
-                ir::TokenType::Symbol => Some(Err(ParseError::new(
+                TokenType::Close => None,
+                TokenType::Symbol => Some(Err(ParseError::new(
                     token.location,
                     ParseErrorCause::MisplacedSymbol,
                 ))),
-                ir::TokenType::Integer => {
-                    Some(Ok(Element::new(token.location, ElementData::Integer)))
-                }
+                TokenType::Integer => Some(Ok(Element::new(token.location, ElementData::Integer))),
             },
             Some(Err(error)) => Some(Err(ParseError::new(
                 error.location,
                 ParseErrorCause::Lexical,
             ))),
             None => Some(Err(ParseError::new(
-                SourceLocation::new(self.lexer.source(), self.lexer.offset(), 0),
+                SourceLocation::new(Rc::clone(self.lexer.source()), self.lexer.offset(), 0),
                 ParseErrorCause::UnclosedParen,
             ))),
         }
