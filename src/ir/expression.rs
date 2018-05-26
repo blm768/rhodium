@@ -52,5 +52,10 @@ pub fn expression_from_element<'a>(
             let value = str::parse::<usize>(element.location.text()).unwrap();
             Ok(Expression::from_value(Ok(Value::Integer(value))))
         }
+        ir::ElementData::String => {
+            let text = element.location.text();
+            let value = text[1..text.len() - 1].to_owned();
+            Ok(Expression::from_value(Ok(Value::String(value))))
+        }
     }
 }

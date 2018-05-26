@@ -81,6 +81,23 @@ fn propagate_errors(
     op(context, values.as_ref())
 }
 
+fn unary_op(
+    op: fn(&EvaluationContext, &Value) -> EvaluationResult<ValueResult>,
+    context: &EvaluationContext,
+    operands: &[Value],
+) -> EvaluationResult<ValueResult> {
+    if operands.len() == 1 {
+        op(context, &operands[0])
+    } else {
+        Total(Err(ValueError::new(
+            ValueErrorCause::WrongNumberOfOperandsForOperation {
+                expected: 1,
+                found: operands.len(),
+            },
+        )))
+    }
+}
+
 fn binary_op(
     op: fn(&EvaluationContext, &Value, &Value) -> EvaluationResult<ValueResult>,
     context: &EvaluationContext,
@@ -150,16 +167,44 @@ fn define_symbol(
     propagate_errors(bin_define, context, args)
 }
 
+fn get_symbol(context: &EvaluationContext, args: &[ValueResult]) -> EvaluationResult<ValueResult> {
+    fn do_get(context: &EvaluationContext, name: &Value) -> EvaluationResult<ValueResult> {
+        if let Value::String(ref name_str) = *name {
+            let scope = context.scope();
+            let mut scope_mut = scope.borrow_mut();
+            match scope_mut.lookup(name_str) {
+                Some(value) => Total(Ok(value.clone())),
+                // TODO: do something useful with the error value.
+                None => Total(Err(ValueError::new(ValueErrorCause::UnspecifiedError))),
+            }
+        } else {
+            Total(Err(ValueError::new(
+                ValueErrorCause::WrongTypesForOperation,
+            )))
+        }
+    }
+
+    fn unary_get(context: &EvaluationContext, operands: &[Value]) -> EvaluationResult<ValueResult> {
+        unary_op(do_get, context, operands)
+    }
+
+    propagate_errors(unary_get, context, args)
+}
+
 const ADD_OP: Operation = Operation::new("add", add);
 const DEFINE_OP: Operation = Operation::new("define_symbol", define_symbol);
+const GET_SYM_OP: Operation = Operation::new("get_symbol", get_symbol);
 
 /**
  * Returns the default Rhodium `OperationGroup`
  */
 pub fn default_operations() -> OperationGroup {
     OperationGroup::new(
-        [("add", ADD_OP), ("define_symbol", DEFINE_OP)]
-            .iter()
+        [
+            ("add", ADD_OP),
+            ("define_symbol", DEFINE_OP),
+            ("get_symbol", GET_SYM_OP),
+        ].iter()
             .cloned()
             .map(|i| (Box::<str>::from(i.0), i.1))
             .collect(),

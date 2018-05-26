@@ -17,9 +17,11 @@ impl<'a> Element<'a> {
     }
 }
 
+// TODO: parse integers and strings. (Handle in lexer?)
 pub enum ElementData<'a> {
     Operation(OperationIterator<'a>),
     Integer,
+    String,
 }
 
 #[derive(Clone, Debug)]
@@ -136,6 +138,7 @@ impl Parser {
                     ParseErrorCause::MisplacedSymbol,
                 )),
                 TokenType::Integer => Ok(Element::new(token.location, ElementData::Integer)),
+                TokenType::String => Ok(Element::new(token.location, ElementData::String)),
             }),
             Some(Err(error)) => Some(Err(ParseError::new(
                 error.location,
@@ -199,6 +202,7 @@ impl<'a> OperationIterator<'a> {
                     ParseErrorCause::MisplacedSymbol,
                 ))),
                 TokenType::Integer => Some(Ok(Element::new(token.location, ElementData::Integer))),
+                TokenType::String => Some(Ok(Element::new(token.location, ElementData::String))),
             },
             Some(Err(error)) => Some(Err(ParseError::new(
                 error.location,

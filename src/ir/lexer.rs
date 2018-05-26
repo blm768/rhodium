@@ -13,6 +13,7 @@ pub enum TokenType {
     Close,
     Symbol,
     Integer,
+    String,
 }
 
 #[derive(Clone, Debug)]
@@ -84,6 +85,20 @@ impl Iterator for Lexer {
         }
         if first_char == ')' {
             return Some(Ok(self.pop_token(TokenType::Close, ')'.len_utf8())));
+        }
+
+        if first_char == '"' {
+            // TODO: support escape sequences
+            let mut chars = remaining.chars();
+            let str_len = chars.position({ |c| c != '"' });
+            return match str_len {
+                Some(len) => Some(Ok(
+                    self.pop_token(TokenType::String, len + '"'.len_utf8() * 2)
+                )),
+                None => Some(Err(LexicalError {
+                    location: SourceLocation::new(Rc::clone(&source), self.offset, 0),
+                })),
+            };
         }
 
         let white_len = charclass::match_length(remaining, charclass::is_whitespace);
