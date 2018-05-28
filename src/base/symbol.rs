@@ -5,12 +5,14 @@ use base::value::Value;
 #[derive(Debug, Default)]
 pub struct SymbolTable {
     entries: HashMap<Box<str>, Value>,
+    finalized: bool,
 }
 
 impl SymbolTable {
     pub fn new() -> SymbolTable {
         SymbolTable {
             entries: HashMap::new(),
+            finalized: false,
         }
     }
 
@@ -24,5 +26,13 @@ impl SymbolTable {
         }
         self.entries.insert(Box::from(name), value);
         Ok(())
+    }
+
+    pub fn finalized(&self) -> bool {
+        self.finalized
+    }
+
+    pub fn finalize(&mut self) {
+        self.finalized = true
     }
 }

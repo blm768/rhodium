@@ -1,14 +1,23 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
 use base::expression;
+use base::expression::EvaluationListener;
 use base::symbol::SymbolTable;
-use base::value::{Value, ValueResult};
+use base::value::{PartialExpression, Value, ValueResult};
 
 #[derive(Debug, Default)]
 pub struct Scope {
     symbols: SymbolTable,
     parent: Weak<RefCell<Scope>>,
+    listeners: HashMap<Box<str>, Vec<Weak<PartialExpression>>>,
+}
+
+pub enum LookupResult {
+    Total(Value),
+    Pending,
+    NotFound,
 }
 
 impl Scope {
@@ -16,16 +25,22 @@ impl Scope {
         Scope {
             symbols: SymbolTable::new(),
             parent: Weak::default(),
+            listeners: HashMap::new(),
         }
     }
 
-    pub fn lookup(&self, name: &str) -> Option<Value> {
+    pub fn get_symbol(&self, name: &str) -> LookupResult {
         match self.symbols.get(name) {
-            Some(value) => Some(value.clone()),
+            Some(value) => LookupResult::Total(value.clone()),
             None => {
-                let parent = self.parent.upgrade()?;
-                let borrowed = parent.borrow();
-                borrowed.lookup(name)
+                if self.symbols.finalized() {
+                    match self.parent.upgrade() {
+                        Some(ref parent) => parent.borrow().get_symbol(name),
+                        None => LookupResult::NotFound,
+                    }
+                } else {
+                    LookupResult::Pending
+                }
             }
         }
     }
@@ -38,7 +53,20 @@ impl Scope {
      * TODO: figure out how we'll represent non-total values.
      */
     pub fn define_symbol(&mut self, name: &str, value: Value) -> Result<(), Value> {
-        self.symbols.insert(name, value)
+        self.symbols.insert(name, value.clone())?;
+        if let Some(listeners) = self.listeners.remove(name) {
+            for listener in listeners.iter().filter_map({ |l| l.upgrade() }) {
+                listener.on_evaluated(&*listener, Ok(value.clone()));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn register_listener(&mut self, name: &str, listener: Weak<PartialExpression>) {
+        self.listeners
+            .entry(name.into())
+            .or_insert_with(Vec::new)
+            .push(listener);
     }
 }
 

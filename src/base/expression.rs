@@ -3,6 +3,8 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
+use std::mem;
+use std::ptr;
 use std::rc::{Rc, Weak};
 
 /**
@@ -10,8 +12,7 @@ use std::rc::{Rc, Weak};
  */
 pub trait Value: Clone + Debug {}
 
-// TODO: remove Clone once it's not required for #[derive(Clone)] on Operation?
-pub trait EvaluationContext: Clone {
+pub trait EvaluationContext: Clone + Debug {
     type Value: Value + 'static;
 }
 
@@ -72,6 +73,7 @@ pub struct PartialExpression<C: EvaluationContext> {
     context: C,
     operands: RefCell<OperandList<C>>,
     listener: Cell<Option<Weak<EvaluationListener<C>>>>,
+    self_weak: Weak<PartialExpression<C>>,
     /**
      * The operand's index in the parent expression
      *
@@ -80,27 +82,26 @@ pub struct PartialExpression<C: EvaluationContext> {
     index: Cell<usize>,
 }
 
-// Since we can't derive Debug for Cell<Option<Weak<...>>>, we have to implement it manually.
-impl<C: EvaluationContext> Debug for PartialExpression<C> {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
-        // TODO: implement properly.
-        write!(f, "PartialExpression")
-    }
-}
-
 impl<C: EvaluationContext + 'static> PartialExpression<C> {
     pub fn new(op: Operation<C>, context: C, operands: OperandList<C>) -> Rc<PartialExpression<C>> {
-        let exp = Rc::new(PartialExpression {
+        let mut exp = Rc::new(PartialExpression {
             operation: op,
             context,
             operands: RefCell::new(operands),
             listener: Cell::new(None),
+            self_weak: unsafe { mem::uninitialized() },
             index: Cell::new(0),
         });
+        unsafe {
+            ptr::write(
+                &mut Rc::get_mut(&mut exp).unwrap().self_weak,
+                Rc::<PartialExpression<C>>::downgrade(&exp),
+            );
+        }
 
-        // Set operands' listeners.
+        // Make exp listen for changes in its operands.
         {
-            let operands = &*exp.operands.borrow();
+            let operands = exp.operands.borrow();
             if let OperandList::Partial(ref operands, _) = *operands {
                 for operand in operands.iter() {
                     if let Expression::Partial(ref oi) = *operand {
@@ -113,49 +114,106 @@ impl<C: EvaluationContext + 'static> PartialExpression<C> {
 
         exp
     }
-}
 
-impl<C: EvaluationContext> EvaluationListener<C> for PartialExpression<C> {
-    fn on_evaluated(&self, partial: &PartialExpression<C>, value: C::Value) {
-        let operand_list = &mut *self.operands.borrow_mut();
+    fn try_evaluate_self(&self) {
+        let mut operands = self.operands.borrow_mut();
 
-        let mut eval_result = EvaluationResult::Pending;
-        // If the OperandList becomes total, the new total list will be stored here.
-        let mut new_operands: Option<OperandList<C>> = None;
+        let new_operands: Option<Vec<C::Value>> = match *operands {
+            OperandList::Total(_) => None,
+            OperandList::Partial(ref ops, num_partial) => {
+                if num_partial == 0 {
+                    Some(
+                        ops.iter()
+                            .map(|o| match *o {
+                                Expression::Total(ref value) => value.clone(),
+                                _ => unreachable!(),
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                } else {
+                    None
+                }
+            }
+        };
 
-        if let OperandList::Partial(ref mut operands, ref mut num_partial) = *operand_list {
-            if let Expression::Partial(_) = operands[partial.index.get()] {
-                operands[partial.index.get()] = Expression::Total(value);
-                *num_partial -= 1;
+        if let Some(total_ops) = new_operands {
+            *operands = OperandList::Total(total_ops);
+        }
 
-                // Are we ready to evaluate?
-                if *num_partial == 0 {
-                    let total_operands = operands
-                        .iter()
-                        .map(|o| match *o {
-                            Expression::Total(ref value) => value.clone(),
-                            _ => unreachable!(),
-                        })
-                        .collect::<Vec<_>>();
+        if let OperandList::Total(ref total_ops) = *operands {
+            let eval_result = self.operation.evaluate(&self.context, total_ops);
+            match eval_result {
+                EvaluationResult::Total(value) => self.on_self_evaluated(value),
+                EvaluationResult::Pending => {
+                    self.operation
+                        .register(&self.context, &self.self_weak, total_ops);
+                }
+            }
+        }
+    }
 
-                    eval_result = self.operation.evaluate(&self.context, &total_operands);
-                    new_operands = Some(OperandList::Total(total_operands));
+    fn on_self_evaluated(&self, value: C::Value) {
+        // We know that there won't be a mutable borrow of the listener here
+        // because no one else will be setting it.
+        let maybe_listener = unsafe { &*self.listener.as_ptr() };
+        if let Some(ref weak_listener) = *maybe_listener {
+            println!("listener"); // DEBUG
+            if let Some(ref listener) = weak_listener.upgrade() {
+                listener.on_evaluated(self, value);
+            }
+        }
+    }
+
+    fn on_operand_evaluated(&self, operand: &PartialExpression<C>, value: C::Value) {
+        println!("Operand {} evaluated", operand.index.get()); // DEBUG
+        {
+            let mut operand_list = self.operands.borrow_mut();
+
+            // Update the operand list.
+            if let OperandList::Partial(ref mut operands, ref mut num_partial) = *operand_list {
+                if let Expression::Partial(_) = operands[operand.index.get()] {
+                    operands[operand.index.get()] = Expression::Total(value);
+                    *num_partial -= 1;
                 }
             }
         }
 
-        if let Some(operands) = new_operands {
-            *operand_list = operands;
-        }
+        self.try_evaluate_self();
+    }
+}
 
-        if let EvaluationResult::Total(value) = eval_result {
-            // We know that there won't be a mutable borrow here because no one else should
-            // be setting the listener.
-            let maybe_listener = unsafe { &*self.listener.as_ptr() };
-            if let Some(ref weak_listener) = *maybe_listener {
-                if let Some(ref listener) = weak_listener.upgrade() {
-                    listener.on_evaluated(self, value);
-                }
+// Since we can't derive Debug for Cell<Option<Weak<...>>>, we have to implement it manually.
+impl<C: EvaluationContext> Debug for PartialExpression<C> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        // TODO: implement properly.
+        write!(
+            f,
+            "PartialExpression({:?}, {:?})",
+            self.operation,
+            self.operands.borrow()
+        )
+    }
+}
+
+impl<C: EvaluationContext + 'static> EvaluationListener<C> for PartialExpression<C> {
+    fn on_evaluated(&self, partial: &PartialExpression<C>, value: C::Value) {
+        // Use hairy pointer comparisons to see how the recently evaluated partial is
+        // related to self.
+        let self_ptr = self as *const PartialExpression<C> as *const ();
+        if partial as *const PartialExpression<C> as *const () == self_ptr {
+            self.on_self_evaluated(value);
+        } else {
+            // This should be effectively safe because we don't mutate the Cell
+            // while the pointer is still in use.
+            let listener_ptr = unsafe {
+                (*partial.listener.as_ptr())
+                    .as_ref()
+                    .and_then({ |p| p.upgrade() })
+                    .map({ |p| Rc::into_raw(p) as *const () })
+                    .unwrap_or(ptr::null())
+            };
+            if listener_ptr == self_ptr {
+                self.on_operand_evaluated(partial, value);
             }
         }
     }
@@ -188,8 +246,11 @@ impl<C: EvaluationContext + 'static> Expression<C> {
                     let partial = PartialExpression::new(
                         op,
                         context.clone(),
-                        OperandList::Total(operand_values),
+                        OperandList::Total(operand_values.clone()),
                     );
+                    // TODO: reorganize somehow so we don't need the clone above.
+                    let listener = Rc::downgrade(&partial);
+                    op.register(context, &listener, &operand_values);
                     Expression::Partial(partial)
                 }
             };
@@ -211,23 +272,47 @@ pub enum EvaluationResult<V: Value + 'static> {
     Pending,
 }
 
+/**
+ * A function that uses an EvaluationContext, an array of operands, and an
+ * evaluation listener to handle the evaluation of an Operation
+ */
+pub type Evaluator<C> =
+    fn(&C, &[<C as EvaluationContext>::Value]) -> EvaluationResult<<C as EvaluationContext>::Value>;
+
+pub type Registrar<C> = fn(&C, &Weak<PartialExpression<C>>, &[<C as EvaluationContext>::Value]);
+
 // TODO: handle "lazy"/quoted ops?
 #[derive(Clone)]
 pub struct Operation<C: EvaluationContext> {
     name: &'static str,
-    evaluator: fn(&C, &[C::Value]) -> EvaluationResult<C::Value>,
+    evaluator: Evaluator<C>,
+    registrar: Registrar<C>,
 }
 
 impl<C: EvaluationContext> Operation<C> {
     pub const fn new(
         name: &'static str,
-        evaluator: fn(&C, &[C::Value]) -> EvaluationResult<C::Value>,
+        evaluator: Evaluator<C>,
+        registrar: Registrar<C>,
     ) -> Operation<C> {
-        Operation { name, evaluator }
+        Operation {
+            name,
+            evaluator,
+            registrar,
+        }
     }
 
     pub fn evaluate(&self, context: &C, operands: &[C::Value]) -> EvaluationResult<C::Value> {
         (self.evaluator)(context, operands)
+    }
+
+    pub fn register(
+        &self,
+        context: &C,
+        listener: &Weak<PartialExpression<C>>,
+        operands: &[C::Value],
+    ) {
+        (self.registrar)(context, listener, operands)
     }
 }
 

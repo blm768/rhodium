@@ -2,11 +2,12 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::rc::Weak;
 
-use base::context::EvaluationContext;
+use base::context::{EvaluationContext, LookupResult};
 use base::expression;
 use base::expression::EvaluationResult;
-use base::expression::EvaluationResult::Total;
+use base::expression::EvaluationResult::{Pending, Total};
 
 // A temporary value type (will later be replaced with something more generic)
 #[derive(Clone, Debug)]
@@ -61,8 +62,10 @@ impl Error for ValueError {
 }
 
 pub type Operation = expression::Operation<EvaluationContext>;
+pub type EvaluationListener = expression::EvaluationListener<EvaluationContext>;
 pub type OperationGroup = expression::OperationGroup<EvaluationContext>;
 pub type Expression = expression::Expression<EvaluationContext>;
+pub type PartialExpression = expression::PartialExpression<EvaluationContext>;
 
 fn propagate_errors(
     op: fn(&EvaluationContext, &[Value]) -> EvaluationResult<ValueResult>,
@@ -114,6 +117,8 @@ fn binary_op(
         )))
     }
 }
+
+fn null_registrar(_: &EvaluationContext, _: &Weak<PartialExpression>, _: &[ValueResult]) {}
 
 fn add(context: &EvaluationContext, args: &[ValueResult]) -> EvaluationResult<ValueResult> {
     fn do_add(_: &EvaluationContext, a: &Value, b: &Value) -> EvaluationResult<ValueResult> {
@@ -172,10 +177,14 @@ fn get_symbol(context: &EvaluationContext, args: &[ValueResult]) -> EvaluationRe
         if let Value::String(ref name_str) = *name {
             let scope = context.scope();
             let mut scope_mut = scope.borrow_mut();
-            match scope_mut.lookup(name_str) {
-                Some(value) => Total(Ok(value.clone())),
+            // TODO: handle registration.
+            match scope_mut.get_symbol(name_str) {
+                LookupResult::Total(value) => Total(Ok(value.clone())),
+                LookupResult::Pending => Pending,
                 // TODO: do something useful with the error value.
-                None => Total(Err(ValueError::new(ValueErrorCause::UnspecifiedError))),
+                LookupResult::NotFound => {
+                    Total(Err(ValueError::new(ValueErrorCause::UnspecifiedError)))
+                }
             }
         } else {
             Total(Err(ValueError::new(
@@ -191,9 +200,24 @@ fn get_symbol(context: &EvaluationContext, args: &[ValueResult]) -> EvaluationRe
     propagate_errors(unary_get, context, args)
 }
 
-const ADD_OP: Operation = Operation::new("add", add);
-const DEFINE_OP: Operation = Operation::new("define_symbol", define_symbol);
-const GET_SYM_OP: Operation = Operation::new("get_symbol", get_symbol);
+fn get_symbol_register(
+    context: &EvaluationContext,
+    listener: &Weak<PartialExpression>,
+    operands: &[ValueResult],
+) {
+    if operands.len() != 1 {
+        return;
+    }
+
+    if let Ok(Value::String(ref name)) = operands[0] {
+        let scope = context.scope();
+        scope.borrow_mut().register_listener(name, listener.clone());
+    }
+}
+
+const ADD_OP: Operation = Operation::new("add", add, null_registrar);
+const DEFINE_OP: Operation = Operation::new("define_symbol", define_symbol, null_registrar);
+const GET_SYM_OP: Operation = Operation::new("get_symbol", get_symbol, get_symbol_register);
 
 /**
  * Returns the default Rhodium `OperationGroup`
