@@ -3,7 +3,6 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
-use std::mem;
 use std::ptr;
 use std::rc::{Rc, Weak};
 
@@ -73,8 +72,14 @@ pub struct PartialExpression<C: EvaluationContext> {
     context: C,
     operands: RefCell<OperandList<C>>,
     listener: Cell<Option<Weak<EvaluationListener<C>>>>,
-    self_weak: Weak<PartialExpression<C>>,
-    /**
+    /*
+     * Keeps a reference to this PartialExpression so we can call operation.register()
+     * if necessary
+     *
+     * Will be set to None once registration has occurred so we don't double-register.
+     */
+    operation_listener: Cell<Option<Weak<PartialExpression<C>>>>,
+    /*
      * The operand's index in the parent expression
      *
      * Will be set when the PartialExpression is placed in an OperandList
@@ -84,20 +89,15 @@ pub struct PartialExpression<C: EvaluationContext> {
 
 impl<C: EvaluationContext + 'static> PartialExpression<C> {
     pub fn new(op: Operation<C>, context: C, operands: OperandList<C>) -> Rc<PartialExpression<C>> {
-        let mut exp = Rc::new(PartialExpression {
+        let exp = Rc::new(PartialExpression {
             operation: op,
             context,
             operands: RefCell::new(operands),
             listener: Cell::new(None),
-            self_weak: unsafe { mem::uninitialized() },
+            operation_listener: Cell::new(None),
             index: Cell::new(0),
         });
-        unsafe {
-            ptr::write(
-                &mut Rc::get_mut(&mut exp).unwrap().self_weak,
-                Rc::<PartialExpression<C>>::downgrade(&exp),
-            );
-        }
+        exp.operation_listener.set(Some(Rc::downgrade(&exp)));
 
         // Make exp listen for changes in its operands.
         {
@@ -115,7 +115,7 @@ impl<C: EvaluationContext + 'static> PartialExpression<C> {
         exp
     }
 
-    fn try_evaluate_self(&self) {
+    fn try_evaluate_self(&self) -> EvaluationResult<C::Value> {
         let mut operands = self.operands.borrow_mut();
 
         let new_operands: Option<Vec<C::Value>> = match *operands {
@@ -142,22 +142,23 @@ impl<C: EvaluationContext + 'static> PartialExpression<C> {
 
         if let OperandList::Total(ref total_ops) = *operands {
             let eval_result = self.operation.evaluate(&self.context, total_ops);
-            match eval_result {
-                EvaluationResult::Total(value) => self.on_self_evaluated(value),
-                EvaluationResult::Pending => {
+            if let EvaluationResult::Pending = eval_result {
+                if let Some(op_listener) = self.operation_listener.replace(None) {
                     self.operation
-                        .register(&self.context, &self.self_weak, total_ops);
+                        .register(&self.context, &op_listener, total_ops);
                 }
             }
+            eval_result
+        } else {
+            EvaluationResult::Pending
         }
     }
 
     fn on_self_evaluated(&self, value: C::Value) {
-        // We know that there won't be a mutable borrow of the listener here
-        // because no one else will be setting it.
+        // We know that no one else will be mutating self.EvaluationListener until we
+        // call upgrade(), at which point we don't care whether mutation happens.
         let maybe_listener = unsafe { &*self.listener.as_ptr() };
         if let Some(ref weak_listener) = *maybe_listener {
-            println!("listener"); // DEBUG
             if let Some(ref listener) = weak_listener.upgrade() {
                 listener.on_evaluated(self, value);
             }
@@ -165,7 +166,6 @@ impl<C: EvaluationContext + 'static> PartialExpression<C> {
     }
 
     fn on_operand_evaluated(&self, operand: &PartialExpression<C>, value: C::Value) {
-        println!("Operand {} evaluated", operand.index.get()); // DEBUG
         {
             let mut operand_list = self.operands.borrow_mut();
 
@@ -178,7 +178,9 @@ impl<C: EvaluationContext + 'static> PartialExpression<C> {
             }
         }
 
-        self.try_evaluate_self();
+        if let EvaluationResult::Total(value) = self.try_evaluate_self() {
+            self.on_self_evaluated(value)
+        }
     }
 }
 
@@ -264,6 +266,20 @@ impl<C: EvaluationContext + 'static> Expression<C> {
      */
     pub fn from_value(value: C::Value) -> Expression<C> {
         Expression::Total(value)
+    }
+
+    /**
+     * Attempts to evaluate the expression in-place
+     */
+    pub fn try_evaluate(&mut self) {
+        let mut new_val: EvaluationResult<C::Value> = EvaluationResult::Pending;
+        if let Expression::Partial(ref part) = self {
+            new_val = part.try_evaluate_self();
+        }
+
+        if let EvaluationResult::Total(value) = new_val {
+            *self = Expression::Total(value);
+        }
     }
 }
 
